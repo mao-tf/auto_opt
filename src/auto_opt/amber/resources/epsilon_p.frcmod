@@ -1,0 +1,28 @@
+Remark line goes here
+MASS
+ca 12.010        0.360
+f  19.000        0.320
+
+BOND
+ca-ca  378.60   1.398
+ca-f   353.60   1.349
+
+ANGLE
+ca-ca-ca   68.800     120.020
+ca-ca-f    89.300     118.960
+
+DIHE
+ca-ca-ca-ca   4   14.500       180.000           2.000
+ca-ca-ca-f    4   14.500       180.000           2.000
+f -ca-ca-f    4   14.500       180.000           2.000
+
+IMPROPER
+ca-ca-ca-ca         1.1          180.0         2.0          Same as c2-ca-ca-ca, penalty score= 31.1)
+ca-ca-ca-f          1.1          180.0         2.0
+
+NONBON
+  ca          1.8606  0.0908
+  f           1.7010  0.05649
+
+
+
