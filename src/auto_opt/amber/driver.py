@@ -29,7 +29,7 @@ def _prepare_amber_resources(auto_dir: str):
             shutil.copy2(s, amber_dir / name)
 
 def main_process(args):
-    auto_dir = args.auto_dir
+    auto_dir = str(Path(args.auto_dir).resolve()) 
     _prepare_amber_resources(auto_dir)
     os.makedirs(auto_dir, exist_ok=True)
     os.makedirs(os.path.join(auto_dir,'amber'), exist_ok=True)
@@ -59,7 +59,7 @@ def main_process(args):
     isOver = False
     while not(isOver):
         #check
-        isOver = listen(args.auto_dir,args.monomer_name,args.num_nodes,args.isTest)##argsの中身を取る
+        isOver = listen(auto_dir,args.monomer_name,args.num_nodes,args.isTest)##argsの中身を取る
         time.sleep(0.1)
 
 def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取るか中身をばらして取るかの違い
@@ -67,8 +67,8 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
     
     mono_file_p = str(AMBER_REF / 'pfa_HF_esp_gaff2_p.out')
     mono_file_t = str(AMBER_REF / 'pfa_HF_esp_gaff2_t.out')
-    E_mono_p=get_E(mono_file_p)[0]
-    E_mono_t=get_E(mono_file_t)[0]
+    E_mono_p=amber_get_E(mono_file_p)[0]
+    E_mono_t=amber_get_E(mono_file_t)[0]
     auto_csv_1 = os.path.join(auto_dir,'step1_1.csv');df_E_1 = pd.read_csv(auto_csv_1)
     df_prg_1 = df_E_1.loc[df_E_1['status']=='InProgress',fixed_param_keys+opt_param_keys_1+['file_name']]
     len_prg_1=len(df_prg_1)
@@ -78,7 +78,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
         log_filepath1 = os.path.join(*[auto_dir,'amber',file_name1])
         if not(os.path.exists(log_filepath1)):#logファイルが生成される直前だとまずいので
             continue
-        E_list1=get_E(log_filepath1)
+        E_list1=amber_get_E(log_filepath1)
         if len(E_list1)!=1 :##get Eの長さは計算した分子の数
             continue
         else:
@@ -101,7 +101,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
         log_filepath2 = os.path.join(*[auto_dir, 'amber', file_name2])
         if not(os.path.exists(log_filepath2)):
             continue
-        E_list2 = get_E(log_filepath2)
+        E_list2 = amber_get_E(log_filepath2)
         if len(E_list2) != 1:
             continue
         else:
@@ -124,7 +124,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
         log_filepath3 = os.path.join(*[auto_dir, 'amber', file_name3])
         if not (os.path.exists(log_filepath3)):
             continue
-        E_list3 = get_E(log_filepath3)
+        E_list3 = amber_get_E(log_filepath3)
         if len(E_list3) != 1:
             continue
         else:

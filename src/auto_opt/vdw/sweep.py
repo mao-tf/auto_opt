@@ -193,7 +193,7 @@ def sweep(monomer_path: str, out_dir: str, z_max: float, z_step: float,
                 ca = R_a - 2.0 * R_clps * math.cos(math.radians(beta))
                 cb = R_b - 2.0 * R_clps * math.sin(math.radians(beta))
                 ok = (ca <= eps_a) and (cb <= eps_b)
-                all_rows.append([alpha, beta, z, R_clps, ok])
+                all_rows.append([alpha, beta, z, 2*R_clps, ok])
 
     df = pd.DataFrame(all_rows, columns=['alpha','beta','z','R_clps','TorF'])
     df = df.sort_values(['z','alpha','beta']).reset_index(drop=True)
