@@ -22,3 +22,10 @@ nohup.out
 # ただし参照データはバージョン管理に残す
 !data/amber_ref/
 !data/monomer/
+runs/
+nohup.out
+__pycache__/
+*.pyc
+*.log
+*.out
+*.chk
