@@ -188,7 +188,7 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: Dict[str,float], mac
     os.chmod(sh_path, 0o755)
 
     if not isTest:
-        subprocess.run(['qsub', str(sh_path)], check=False, cwd=str(inp_dir))
+        subprocess.run(['qsub', sh_path.name], check=False, cwd=str(inp_dir))
 
     log_file_name = Path(file_name).with_suffix('.log').name
     return log_file_name
@@ -254,10 +254,6 @@ def extract_from_step1(step1_csv: str, out_csv: str) -> pd.DataFrame:
         if not nb:            # 端点（近傍が欠ける）は除外
             return False
         return (all(e <= v for v in nb)) and any(e < v for v in nb)
-
-    ################
-    df = df[df['z'] == 1.3]
-    ################
 
     rows = []
     for (alpha, z), g in df.groupby(['alpha','z']):
