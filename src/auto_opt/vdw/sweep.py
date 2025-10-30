@@ -4,7 +4,7 @@ import math, argparse, pathlib
 from typing import List, Iterable, Tuple
 import numpy as np
 import pandas as pd
-from utils import Rod, vdw_radius
+from auto_opt.utils import Rod, vdw_radius
 
 # --- IO ----------------------------------------------------------------------
 def read_xyz(path: str) -> List[List[object]]:
