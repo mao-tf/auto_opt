@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-dft_results.csv から (alpha, z) 2D の局所最小を抽出（a-stack / b-stack を個別に）
+dft_results.csv から (alpha, z) 2D の局所最小を抽出
 
-- 入力 CSV は、各 (alpha, z) について structure_type ∈ {a-stack, b-stack, ch} の E を持つ想定
-- ch は無視。a-stack と b-stack をそれぞれ別ファイルに書き出す
-- α,z のグリッドは浮動小数の揺れを丸めで吸収
-- 近傍は 2種:
-    * α が内部 (5..85°): 8近傍（上下左右＋斜め）
-    * α が端点 (0°/90°): 反射境界（-5→5, 95→85）で近傍を作り、重複を除いて **隣接5点** で比較
-- 端点でも上記の定義で局所最小を評価
-- 近接間引き（ユークリッド距離 in (alpha, z)）や top-k も指定可
+- structure_type ∈ {a-stack, b-stack, ch} を想定
+- a-stack / b-stack: α=0/90°は反射境界（-5→5, 95→85）で近傍を作り、局所最小を抽出
+- ch: 局所最小は取らず、フィルタ後にそのまま並べ替えて出力（top-k 指定があれば上位のみ）
+- α,z のグリッドは丸めで吸収（外れ値の微小ズレ対策）
 """
 import argparse
 from pathlib import Path
@@ -18,9 +14,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-PARAM_COLS = ["alpha", "z"]
-ENERGY_COLS_CAND = ["E", "E1", "E2", "E3"]
-VALID_STACKS = ("a-stack", "b-stack")
+ENERGY_COLS_CAND = ["E", "E_tot", "Energy"]
+VALID_STACKS = ("a-stack", "b-stack", "ch")
 
 # ----- utils -----
 
@@ -31,9 +26,21 @@ def _coerce_numeric(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     return df
 
 def _filter_done(df: pd.DataFrame, include_incomplete: bool) -> pd.DataFrame:
+    # status 列が無い or 未完了も含めたい → そのまま返す
     if include_incomplete or ("status" not in df.columns):
         return df
-    return df[df["status"].astype(str).str.lower().eq("done")]
+    mask = df["status"].astype(str).str.lower().eq("done")
+    n_total = len(df)
+    n_done  = int(mask.sum())
+    n_bad   = n_total - n_done
+    if n_bad > 0:
+        counts = (df.loc[~mask, "status"]
+                    .astype(str).str.lower().value_counts())
+        # 概要
+        print(f"[WARN] {n_bad}/{n_total} rows are not Done: " +
+                ", ".join(f"{k}:{v}" for k, v in counts.items()))
+        
+    return df[mask]
 
 def _estimate_step(values: np.ndarray, default: float = 0.1) -> float:
     u = np.unique(np.round(values.astype(float), 6))
@@ -89,25 +96,6 @@ def _is_local_min_2d_reflect(a: float, z: float, e: float, grid: dict,
         return False
     return (all(e <= v for v in vals)) and any(e < v for v in vals)
 
-def _greedy_by_distance(df: pd.DataFrame, top_k: int, min_sep: float,
-                        coords: List[str]) -> pd.DataFrame:
-    """E昇順で選別。coords 距離が min_sep 以上になるよう貪欲に採用。"""
-    if top_k <= 0:
-        return df.iloc[0:0].copy()
-    picked_idx = []
-    picked_pts: List[np.ndarray] = []
-    for i, r in df.iterrows():
-        pt = np.array([float(r[c]) for c in coords], float)
-        if not picked_pts:
-            picked_pts.append(pt); picked_idx.append(i)
-        else:
-            d = np.linalg.norm(np.array(picked_pts) - pt, axis=1)
-            if (min_sep <= 0.0) or np.all(d >= min_sep):
-                picked_pts.append(pt); picked_idx.append(i)
-        if len(picked_idx) >= top_k:
-            break
-    return df.loc[picked_idx]
-
 def _pick_energy_col(df: pd.DataFrame) -> str:
     for c in ENERGY_COLS_CAND:
         if c in df.columns:
@@ -120,36 +108,44 @@ def _az_local_for_stack(df: pd.DataFrame,
                         stack: str,
                         round_alpha: int,
                         round_z: int,
-                        min_az_sep: float,
                         top_k: Optional[int],
                         alpha_min: float = 0.0,
                         alpha_max: float = 90.0) -> pd.DataFrame:
     if "structure_type" not in df.columns:
-        raise ValueError("必要列 'structure_type' が見つからない。a-stack/b-stack 判定に必須。")
+        raise ValueError("必要列 'structure_type' が見つからない。a-stack/b-stack/ch 判定に必須。")
     if stack not in VALID_STACKS:
         raise ValueError(f"未知の stack: {stack}. 有効: {VALID_STACKS}")
 
     energy_col = _pick_energy_col(df)
 
+    # --- ch: 局所最小抽出はしない。フィルタして整形のみ ---
+    if stack == "ch":
+        gg = df[df["structure_type"].astype(str) == "ch"].copy()
+        if gg.empty:
+            return df.iloc[0:0].copy()  # or raise
+        # “そのまま抜き出す”解釈：行は削らない。出力整形だけ。
+        out = gg.sort_values([energy_col, "z", "alpha"], ascending=[True, True, True])\
+                .reset_index(drop=True)
+        if top_k:
+            out = out.sort_values(energy_col).head(top_k).reset_index(drop=True)
+        return out
+
+    # --- a-stack / b-stack: 反射境界で局所最小抽出 ---
     gg = df[df["structure_type"].astype(str) == stack].copy()
     if gg.empty:
-        return gg.iloc[0:0].copy()
+        return df.iloc[0:0].copy()
 
-    # 丸めで同一格子点(α,z)を代表化（E最小の行を残す）
     gg["alpha_r"] = gg["alpha"].round(round_alpha)
     gg["z_r"]     = gg["z"].round(round_z)
     gg = gg.sort_values(energy_col).drop_duplicates(subset=["alpha_r","z_r"], keep="first")
 
-    # 近傍ステップ推定（期待値: da=5）
     da = _estimate_step(gg["alpha_r"].to_numpy(), default=5.0)
     dz = _estimate_step(gg["z_r"].to_numpy(),     default=0.1)
 
-    # グリッド辞書 (α,z) -> E
     grid = {(float(a), float(z)): float(e)
             for a, z, e in gg[["alpha_r","z_r", energy_col]].itertuples(index=False, name=None)}
     grid["_da"], grid["_dz"] = da, dz
 
-    # 2D 近傍（反射境界対応）での局所最小を抽出
     mins = []
     for r in gg.itertuples(index=False):
         a, z, e = float(r.alpha_r), float(r.z_r), float(getattr(r, energy_col))
@@ -162,16 +158,6 @@ def _az_local_for_stack(df: pd.DataFrame,
     out = pd.DataFrame(mins).drop(columns=["alpha_r","z_r"], errors="ignore")
     out = out.sort_values([energy_col, "z", "alpha"]).reset_index(drop=True)
 
-    # 近接間引き（(alpha,z) 距離）
-    if min_az_sep > 0:
-        out = _greedy_by_distance(
-            out.sort_values(energy_col),
-            top_k=top_k or len(out),
-            min_sep=min_az_sep,
-            coords=["alpha","z"]
-        ).sort_values([energy_col, "z", "alpha"]).reset_index(drop=True)
-
-    # 全体 top-k（エネルギー昇順）
     if top_k:
         out = out.sort_values(energy_col).head(top_k).reset_index(drop=True)
 
@@ -182,7 +168,6 @@ def select_minima_az_by_stack(
     out_path: str,
     round_alpha: int = 3,
     round_z: int = 3,
-    min_az_sep: float = 0.0,
     top_k: int = 0,
     include_incomplete: bool = False,
     stacks: Tuple[str, ...] = VALID_STACKS,
@@ -190,10 +175,6 @@ def select_minima_az_by_stack(
     alpha_max: float = 90.0,
 ) -> Dict[str, pd.DataFrame]:
     df = pd.read_csv(dft_csv)
-
-    # α 列名の正規化
-    if "alpha" not in df.columns and "theta" in df.columns:
-        df = df.rename(columns={"theta":"alpha"})
 
     # 型整形 & フィルタ
     df = _coerce_numeric(df, ["alpha","z"] + ENERGY_COLS_CAND)
@@ -222,7 +203,6 @@ def select_minima_az_by_stack(
             stack=st,
             round_alpha=round_alpha,
             round_z=round_z,
-            min_az_sep=min_az_sep,
             top_k=(top_k or None),
             alpha_min=alpha_min,
             alpha_max=alpha_max,
@@ -234,7 +214,7 @@ def select_minima_az_by_stack(
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_df.to_csv(out_file, index=False)
         print(f"[select_minima_az] {st}: wrote {out_file} (n={len(out_df)}) "
-              f"(energy={energy_col}, round=({round_alpha},{round_z}), sep={min_az_sep}, "
+              f"(energy={energy_col}, round=({round_alpha},{round_z}), "
               f"alpha_range=[{alpha_min},{alpha_max}])")
 
     return results
@@ -248,14 +228,12 @@ def main():
                     help="出力ファイルのベース名。*.csv なら <name>.a_stack.csv / <name>.b_stack.csv を生成")
     ap.add_argument("--round-alpha", type=int, default=3, help="alpha の丸め桁")
     ap.add_argument("--round-z",     type=int, default=3, help="z の丸め桁")
-    ap.add_argument("--min-az-sep",  type=float, default=0.0,
-                    help="(alpha,z) の最小距離（近接候補の間引き）")
     ap.add_argument("--top-k", type=int, default=0,
                     help="全体の上限件数（0で無制限）")
     ap.add_argument("--include-incomplete", action="store_true",
                     help="status!=Done も含める")
     ap.add_argument("--stacks", nargs="+", default=list(VALID_STACKS),
-                    help="対象の structure_type。デフォルト: a-stack b-stack")
+                    help="対象の structure_type。デフォルト: a-stack b-stack ch")
     ap.add_argument("--alpha-min", type=float, default=0.0)
     ap.add_argument("--alpha-max", type=float, default=90.0)
     args = ap.parse_args()
@@ -265,7 +243,6 @@ def main():
         out_path=args.out,
         round_alpha=args.round_alpha,
         round_z=args.round_z,
-        min_az_sep=args.min_az_sep,
         top_k=args.top_k,
         include_incomplete=args.include_incomplete,
         stacks=tuple(args.stacks),

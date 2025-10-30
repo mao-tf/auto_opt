@@ -42,6 +42,13 @@ def R2atom(R):
     else:
         return 'X'
 
+_VDW = {'H':1.20,'C':1.70,'N':1.55,'O':1.52,'F':1.47,'P':1.80,'S':1.80,'CL':1.75,'BR':1.85,'I':1.98}
+
+def vdw_radius(sym: str) -> float: #sym→symbol(元素記号)
+    s = sym.strip().upper()
+    if s in _VDW: return _VDW[s]
+    return _VDW['C']
+
 def check_calc_status(df_cur,A1,A2,A3,a,b):
     try:        
         return df_cur.loc[
