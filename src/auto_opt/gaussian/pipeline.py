@@ -9,17 +9,15 @@ dft_pipeline.py
 """
 
 from __future__ import annotations
-import os, sys, argparse, subprocess, time
+import os, argparse, subprocess, time
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict
 import numpy as np
 import pandas as pd
-
-# 既存 util を使用
 from auto_opt.utils import Rod, R2atom
 
-# ====== 設定（必要に応じて編集） ======
-MONOMER_DIR = os.path.expanduser("~/Working/PFP/monomer")
+# 変更: デフォルトのモノマーディレクトリ
+MONOMER_DIR = os.path.expanduser("~/Working/auto_opt/data/monomer")
 
 # Gaussian 実行設定
 MACHINE_SPEC = {
@@ -37,14 +35,10 @@ STEP_B = 0.1
 # =========================================================
 
 def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float, A3: float) -> np.ndarray:
-    """
-    既存の get_monomer_xyzR を安全化:
-    - ~/ を展開
-    - 回転は z 軸 (A3) のみ（あなたの原案通り）
-    - 返り値: (x,y,z,R) の np.ndarray [N,4]
-    """
     path = os.path.join(MONOMER_DIR, f"{monomer_name}.csv")
     path = os.path.expanduser(path)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"monomer CSV not found: {path}")
     df_mono = pd.read_csv(path)
     atoms_array_xyzR = df_mono[['X','Y','Z','R']].to_numpy(dtype=float)
 
@@ -66,13 +60,13 @@ def get_xyzR_lines(xyzR_array: np.ndarray, file_description: str, machine_type: 
         '\n',
         file_description + '\n',
         '\n',
-        '0 1 0 1\n',
+        '0 1 0 1 0 1\n',
     ]
     lines = list(header)
 
     n_atom_each = len(xyzR_array) // 2
     if n_atom_each * 2 != len(xyzR_array):
-        raise ValueError("xyzR_array の長さが 2 の倍数ではありません（ダイマーである必要があります）")
+        raise ValueError("xyzR_array の長さが 2 の倍数ではない（ダイマー前提）")
 
     # 前半 Fragment=1, 後半 Fragment=2
     for i, (x, y, z, Rv) in enumerate(xyzR_array):
@@ -84,7 +78,7 @@ def get_xyzR_lines(xyzR_array: np.ndarray, file_description: str, machine_type: 
     return lines
 
 def get_file_name_from_dict(monomer_name: str, params_dict: Dict[str, float]) -> str:
-    """既存関数名を踏襲。alpha は int、a/b/z は丸めて名前に含める"""
+    """alpha は int、a/b/z は 0.1 丸めでファイル名に埋め込む"""
     parts = [monomer_name]
     for key in ("alpha","a","b","z"):
         if key not in params_dict: continue
@@ -94,7 +88,7 @@ def get_file_name_from_dict(monomer_name: str, params_dict: Dict[str, float]) ->
         elif key in ("a","b","z"):
             val = round(float(val), 1)
         parts.append(f"{key}={val}")
-    return "_".join(parts) + ".inp"
+    return "_".join(parts) + ".inp"  ## リストの中身を'_'で連結する
 
 def build_dimers(monomer_name: str, alpha: float, a: float, b: float, z: float
                 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -118,7 +112,7 @@ def build_dimers(monomer_name: str, alpha: float, a: float, b: float, z: float
 
 def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: Dict[str,float], machine_type: int) -> str:
     """
-    既存名を踏襲。3ダイマー(a1,b1,t1)を1つの .inp に Link1 で連結して書き出す。
+    3ダイマー(a1,b1,t1)を1つの .inp に Link1 で連結して書き出す。
     戻り値: ファイル名（ベース名）
     """
     alpha = float(params_dict.get('alpha', 0.0))
@@ -133,19 +127,18 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: Dict[str,float],
     sec2 = get_xyzR_lines(d_b1, desc + " [b1]", machine_type)
     sec3 = get_xyzR_lines(d_t1, desc + " [t1]", machine_type)
 
-    gij_xyz_lines = ['$ RunGauss\n'] + sec1 + ['--Link1--\n'] + sec2 + ['--Link1--\n'] + sec3 + ['\n']
+    gjf_lines = ['$ RunGauss\n'] + sec1 + ['--Link1--\n'] + sec2 + ['--Link1--\n'] + sec3 + ['\n']
 
     out_dir = Path(auto_dir) / 'gaussian'
     out_dir.mkdir(parents=True, exist_ok=True)
     file_name = get_file_name_from_dict(monomer_name, {"alpha":alpha,"a":a,"b":b,"z":z})
-    gij_xyz_path = out_dir / file_name
-    gij_xyz_path.write_text("".join(gij_xyz_lines), encoding="utf-8")
+    gjf_path = out_dir / file_name
+    gjf_path.write_text("".join(gjf_lines), encoding="utf-8")
     return file_name  # 例: PFA_alpha=0_a=6.3_b=9.0_z=0.0.inp
 
 def get_one_exe(file_name: str, machine_type: int) -> List[str]:
     """
-    既存の get_one_exe を踏襲（SGE）。queue名と nproc は MACHINE_SPEC から。
-    戻り値: qsub スクリプトの行リスト
+    SGE 投入スクリプトを生成。queue名と nproc は MACHINE_SPEC 参照。
     """
     spec = MACHINE_SPEC[machine_type]
     file_basename = os.path.splitext(file_name)[0]
@@ -156,6 +149,7 @@ def get_one_exe(file_name: str, machine_type: int) -> List[str]:
         '#$ -V\n',
         f'#$ -q {spec["queue"]}\n',
         f'#$ -pe OpenMP {spec["nproc"]}\n',
+        f'#$ -N {file_basename}\n',
         '\n',
         'hostname\n',
         'export g16root=/home/g03\n',
@@ -173,7 +167,7 @@ def get_one_exe(file_name: str, machine_type: int) -> List[str]:
 def exec_gjf(auto_dir: str, monomer_name: str, params_dict: Dict[str,float], machine_type: int,
              isTest: bool=True) -> str:
     """
-    既存 exec_gjf を踏襲。gaussian/*.inp と *.r1 を作り、isTest=False なら qsub。
+    gaussian/*.inp と *.r1 を作り、isTest=False なら qsub。
     戻り値: .log のファイル名
     """
     inp_dir = Path(auto_dir) / 'gaussian'
@@ -215,25 +209,18 @@ def extract_from_step1(step1_csv: str, out_csv: str) -> pd.DataFrame:
     (alpha,z) ごとに (a,b) の局所最小を抽出し、E, E1, E2, E3 も含めて out_csv へ。
     """
     df = pd.read_csv(step1_csv)
-    # alpha/theta の統一(映進面と分子短軸の角度をthetaにすることがあるがalphaに統一)
-    if 'alpha' not in df.columns:
-        if 'theta' in df.columns:
-            df = df.rename(columns={'theta':'alpha'})
-        else:
-            raise ValueError("step1.csv に alpha / theta 列がありません。")
-    
+
     need_base = {'alpha','a','b','z','E','status'}
     missing = [c for c in need_base if c not in df.columns]
     if missing:
         raise ValueError(f"step1.csv 欠落列: {missing}")
 
-    # あるものだけ拾う（E1/E2/E3 は無ければスキップ）
     energy_cols = [c for c in ['E','E1','E2','E3'] if c in df.columns]
 
     df = df.copy()
     df = df[df['status'].astype(str).str.lower() == 'done']
     if df.empty:
-        raise ValueError("Done 行がありません。まず Amber を完了させてください。")
+        raise ValueError("Done 行がない（まず Amber を完了させる）")
 
     # 型整形
     for c in ['a','b','z'] + energy_cols:
@@ -243,38 +230,24 @@ def extract_from_step1(step1_csv: str, out_csv: str) -> pd.DataFrame:
     # 同一点が複数ある場合は E 最小を採用
     df = df.sort_values('E').drop_duplicates(subset=['alpha','a','b','z'], keep='first')
 
-    def neighbors(a: float, b: float):
-        da, db = 0.1, 0.1  # STEP_A/STEP_B と揃える
-        offs = [( da,0),(-da,0),(0,db),(0,-db),(da,db),(da,-db),(-da,db),(-da,-db)]
-        return [(round(a+x,3), round(b+y,3)) for x,y in offs]
-
-    def is_local_min(a: float, b: float, e: float, grid: dict) -> bool:
-        nb = [grid.get((round(ax,3), round(bx,3))) for (ax,bx) in neighbors(a,b)]
-        nb = [v for v in nb if v is not None]
-        if not nb:            # 端点（近傍が欠ける）は除外
-            return False
-        return (all(e <= v for v in nb)) and any(e < v for v in nb)
-
     rows = []
     for (alpha, z), g in df.groupby(['alpha','z']):
-        # (a,b)→E のマップ
         grid = {(round(r.a,3), round(r.b,3)): float(r.E) for r in g.itertuples(index=False)}
         for r in g.itertuples(index=False):
             a, b, e = float(r.a), float(r.b), float(r.E)
-            if is_local_min(a, b, e, grid):
+            if _is_local_min(a, b, e, grid):
                 rec = {
                     'alpha': float(alpha),
                     'a': round(a,1),
                     'b': round(b,1),
                     'z': float(z),
                 }
-                # E, E1, E2, E3 を持っている分だけ追加
                 for c in energy_cols:
                     rec[c] = float(getattr(r, c))
                 rows.append(rec)
 
     if not rows:
-        raise ValueError("局所最小が見つかりませんでした。グリッド刻みや Done 行を確認してください。")
+        raise ValueError("局所最小が見つからない（グリッド刻みや Done 行を確認）")
 
     out_cols = ['alpha','a','b','z'] + energy_cols
     out = pd.DataFrame(rows)[out_cols].drop_duplicates().sort_values(['z','alpha','a','b']).reset_index(drop=True)
@@ -282,7 +255,6 @@ def extract_from_step1(step1_csv: str, out_csv: str) -> pd.DataFrame:
     out.to_csv(out_csv, index=False)
     print(f"[extract] filtered minima -> {out_csv} (n={len(out)})")
     return out
-
 
 # =========================================================
 #                   投入（qsub）
@@ -292,10 +264,9 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
                            submit: bool=True, throttle: bool=True) -> pd.DataFrame:
     """
     filtered_step1.csv（列: alpha,a,b,z）を読み、
-    マシン 1/2 に交互に割り当て。MAX_PARALLEL に達したときは qstat で待機。
+    マシン 1/2 に交互に割り当て。MAX_PARALLEL に達したときは qstat で待機（簡易）。
     """
     df = pd.read_csv(cand_csv)
-    
     need = {'alpha','a','b','z'}
     miss = [c for c in need if c not in df.columns]
     if miss:
@@ -309,7 +280,7 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
         alpha, a, b, z = float(r.alpha), float(r.a), float(r.b), float(r.z)
         machine = 1 if (i % 2 == 0) else 2
 
-        # スロット制御
+        # スロット制御（簡易）：同queueの自分のジョブ数ベース
         if submit and throttle:
             while True:
                 try:
@@ -321,7 +292,8 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
                 except Exception:
                     break  # qstat が無ければスキップ
 
-        log = exec_gjf(auto_dir, monomer, {"alpha":alpha,"a":a,"b":b,"z":z}, machine_type=machine, isTest=not submit)
+        log = exec_gjf(auto_dir, monomer, {"alpha":alpha,"a":a,"b":b,"z":z},
+                       machine_type=machine, isTest=not submit)
         jobs.append({
             "alpha": alpha, "a": a, "b": b, "z": z,
             "machine": machine,
@@ -340,22 +312,27 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
 # =========================================================
 
 def main():
+    global MONOMER_DIR
+
     ap = argparse.ArgumentParser(description="step1.csv の局所最小抽出 & 3ダイマーDFT投入（Gaussian）")
     ap.add_argument("--auto-dir", required=True, help="作業ディレクトリ（step1.csv / gaussian/ がここ）")
     ap.add_argument("--monomer", required=True, help="例: PFA")
     ap.add_argument("--step1-csv", default=None, help="既定: <auto-dir>/step1.csv")
     ap.add_argument("--out-csv",   default=None, help="既定: <auto-dir>/filtered_step1.csv")
+    ap.add_argument("--monomer-dir", default=MONOMER_DIR, help="モノマーCSVディレクトリ（既定: 環境既定パス）")
     ap.add_argument("--extract-only", action="store_true", help="抽出のみ行い、投入はしない")
     ap.add_argument("--submit-only",  action="store_true", help="既存 filtered_step1.csv から投入のみ行う（抽出はしない）")
     ap.add_argument("--no-throttle",  action="store_true", help="qstat を見ての待機をしない（即投げ）")
     args = ap.parse_args()
 
+    # パスの解決
+    MONOMER_DIR = os.path.expanduser(args.monomer_dir)
     auto_dir = args.auto_dir
     step1_csv = args.step1_csv or str(Path(auto_dir) / "step1.csv")
     out_csv   = args.out_csv   or str(Path(auto_dir) / "filtered_step1.csv")
 
     if args.extract_only and args.submit_only:
-        raise SystemExit("extract-only と submit-only は同時指定できません。")
+        raise SystemExit("extract-only と submit-only は同時指定できない")
 
     if not args.submit_only:
         extract_from_step1(step1_csv, out_csv)

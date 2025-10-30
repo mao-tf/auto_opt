@@ -39,8 +39,18 @@ def R2atom(R):
         return 'H'
     elif R==1.47:
         return 'F'
+    elif R==1.55:
+        return 'N'
+    elif R==1.52:
+        return 'O'
+    elif R==1.75:
+        return 'CL'
+    elif R==1.85:
+        return 'BR'
+    elif R==1.98:
+        return 'I'
     else:
-        return 'X'
+        return 'C'
 
 _VDW = {'H':1.20,'C':1.70,'N':1.55,'O':1.52,'F':1.47,'P':1.80,'S':1.80,'CL':1.75,'BR':1.85,'I':1.98}
 
