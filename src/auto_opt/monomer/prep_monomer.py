@@ -260,7 +260,7 @@ def main():
         out_p.write_text(tmp_out.read_text())
         out_t.write_text(tmp_out.read_text())
         print(f"[amber_ref] wrote {out_p}")
-        print(f"[amber_ref] wrote {out_t}")
+        print(f"[amber_ref] wrote {out_t}")  ###ここのp,tの使い分けは必要ないので削除します
 
 if __name__ == "__main__":
     main()

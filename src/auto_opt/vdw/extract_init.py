@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 # extract_init_from_vdw_minima.py
+"""
+端点のみ（デフォルト）
+python extract_init_from_vdw_minima.py --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv
+
+端点＋局所最小（--minima 指定時）
+python extract_init_from_vdw_minima.py --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv --minima
+"""
 import argparse
 import numpy as np
 import pandas as pd
@@ -49,7 +56,7 @@ def _true_runs(mask: np.ndarray) -> list[list[int]]:
         i = j + 1
     return runs
 
-def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1) -> None:
+def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = False) -> None:
     """
     入力: vdw_r_contact_<monomer>.csv （単一CSV, 列: alpha,beta,z,R_clps,TorF）
     出力: step1_init_params.csv （列: alpha,a,b,z,status）※zで分割しない
@@ -70,18 +77,17 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1) -> None:
         if not mask.any():
             continue
 
-        # True の連結区間ごとに端点＋局所極小を拾う
         for run in _true_runs(mask):
-            # 端（runの先頭と末尾）
+            # 端点は常に採用
             pick = {run[0], run[-1]}
 
-            # 局所極小（run内部で value の離散局所最小）
-            vals = g.loc[run, "value"].to_numpy()
-            mins_local = _local_minima_indices(vals)
-            for k in mins_local:
-                pick.add(run[k])
+            # --minima 指定時のみ、局所最小も採用
+            if minima:
+                vals = g.loc[run, "value"].to_numpy()
+                mins_local = _local_minima_indices(vals)
+                for k in mins_local:
+                    pick.add(run[k])
 
-            # 選んだインデックスを出力
             for i in sorted(pick):
                 a = float(g.loc[i, "a"])
                 b = float(g.loc[i, "b"])
@@ -99,12 +105,15 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1) -> None:
     print(f"Wrote {out_csv} (n={len(out_df)})")
 
 def main():
-    ap = argparse.ArgumentParser(description="vdW単一CSVから Trueの端＋局所極小を抽出し、step1_init_params.csv（alpha,a,b,z,status）を作成")
+    ap = argparse.ArgumentParser(
+        description="vdW単一CSVから True区間の端点＋（オプションで局所極小）を抽出し、step1_init_params.csv を作成"
+    )
     ap.add_argument("--vdw-csv", required=True, help="vdW_r_contact_<monomer>.csv（z列あり）")
     ap.add_argument("--out", required=True, help="出力ファイル（step1_init_params.csv）")
     ap.add_argument("--round-ab", type=int, default=1, help="a,b の小数丸め桁（既定 1 → 0.1刻み）")
+    ap.add_argument("--minima", action="store_true", help="True区間の局所最小（valueの離散極小）も抽出（端点＋極小）")
     args = ap.parse_args()
-    extract_init(args.vdw_csv, args.out, round_ab=args.round_ab)
+    extract_init(args.vdw_csv, args.out, round_ab=args.round_ab, minima=args.minima)
 
 if __name__ == "__main__":
     main()
