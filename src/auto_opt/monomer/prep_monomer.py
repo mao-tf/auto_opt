@@ -7,7 +7,6 @@ ESP .dat を書かせる
 python -m auto_opt.monomer.prep_monomer --in data/monomer/PFA.xyz --monomer PFA --mode resp --submit
 .dat から RESP mol2 を生成（& Amber基準Eも作るなら --amber-ref)
 python -m auto_opt.monomer.prep_monomer --in data/monomer/PFA.xyz --monomer PFA --mode resp --finalize --amber-ref
-
 """
 
 from __future__ import annotations
@@ -16,6 +15,11 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from auto_opt.utils import vdw_radius
+import shutil
+
+# Perl 汚染を除去するため、サブプロセスに渡す環境から特定の変数を削除
+_CLEAN_PERL_VARS = ["PERL5OPT","PERL5LIB","PERL_LOCAL_LIB_ROOT","PERL_MB_OPT","PERL_MM_OPT"]
+
 
 # ---------------- config / paths ----------------
 HERE = Path(__file__).resolve()
@@ -28,19 +32,27 @@ RES = ROOT / "src" / "auto_opt" / "amber" / "resources"  # FF_calc.in など
 GAUSS_QUEUE_DEFAULT = "gr1.q"
 GAUSS_NPROC_DEFAULT = 40
 
+def _clean_env():
+    env = os.environ.copy()
+    for k in _CLEAN_PERL_VARS:
+        env.pop(k, None)
+    return env
+
 # ---------------- shell helpers -----------------
 def run(cmd: str | List[str], cwd: Optional[Path]=None, check: bool=True) -> int:
-    s = cmd if isinstance(cmd, str) else " ".join(map(shlex.quote, cmd))
-    print(f"[cmd] {s}")
+    msg = cmd if isinstance(cmd, str) else " ".join(map(shlex.quote, cmd))
+    print(f"[cmd] {msg}")
     r = subprocess.run(cmd if isinstance(cmd, list) else shlex.split(cmd),
-                       cwd=str(cwd) if cwd else None)
+                       cwd=str(cwd) if cwd else None,
+                       env=_clean_env())
     if check and r.returncode != 0:
         raise RuntimeError(f"command failed: {cmd}")
     return r.returncode
 
 def which(x: str) -> bool:
-    return subprocess.call(['bash','-lc', f'type {shlex.quote(x)} >/dev/null 2>&1']) == 0
-
+    # bash を起動せず、純粋に PATH から探す
+    return shutil.which(x) is not None
+    
 # ---------------- io: XYZ/CSV -------------------
 def read_xyz(xyz_path: Path) -> List[Tuple[str,float,float,float]]:
     rows: List[Tuple[str,float,float,float]] = []
