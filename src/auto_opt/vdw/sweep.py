@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+python -m auto_opt.vdw.sweep --monomer-path data/monomer/PFA.xyz --out-dir runs/PFA_test3 --z-max 1.3 --z-step 0.1 --theta-step 1
+"""
 from __future__ import annotations
 import math, argparse, pathlib
 from typing import List, Iterable, Tuple

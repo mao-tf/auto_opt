@@ -2,10 +2,10 @@
 # extract_init_from_vdw_minima.py
 """
 端点のみ（デフォルト）
-python extract_init_from_vdw_minima.py --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv
+python -m auto_opt.vdw.extract_init --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv
 
 端点＋局所最小（--minima 指定時）
-python extract_init_from_vdw_minima.py --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv --minima
+python -m auto_opt.vdw.extract_init.py --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv --minima
 """
 import argparse
 import numpy as np

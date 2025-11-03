@@ -2,27 +2,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+ESP .dat を書かせる
+python -m auto_opt.monomer.prep_monomer --in data/monomer/PFA.xyz --monomer PFA --mode resp --submit
+.dat から RESP mol2 を生成（& Amber基準Eも作るなら --amber-ref)
+python -m auto_opt.monomer.prep_monomer --in data/monomer/PFA.xyz --monomer PFA --mode resp --finalize --amber-ref
+
+"""
+
 from __future__ import annotations
-import os, sys, shlex, subprocess, time
+import os, shlex, subprocess
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
-import numpy as np
-import pandas as pd
 from auto_opt.utils import vdw_radius
 
-# --- config / paths ----------------------------------------------------------
+# ---------------- config / paths ----------------
 HERE = Path(__file__).resolve()
-ROOT = HERE.parents[3]                  # プロジェクトルート（~/Working/auto_opt 想定）
+ROOT = HERE.parents[3]                 # ~/Working/auto_opt を想定
 DATA = ROOT / "data"
 MONO_DIR = DATA / "monomer"
 AMBER_REF = DATA / "amber_ref"
-RES = ROOT / "src" / "auto_opt" / "amber" / "resources"  # FF_calc.in, frcmod があれば使う
+RES = ROOT / "src" / "auto_opt" / "amber" / "resources"  # FF_calc.in など
 
-# --- shell helpers -----------------------------------------------------------
+GAUSS_QUEUE_DEFAULT = "gr1.q"
+GAUSS_NPROC_DEFAULT = 40
+
+# ---------------- shell helpers -----------------
 def run(cmd: str | List[str], cwd: Optional[Path]=None, check: bool=True) -> int:
-    print(f"[cmd] {cmd if isinstance(cmd,str) else ' '.join(map(shlex.quote,cmd))}")
-    r = subprocess.run(cmd if isinstance(cmd,list) else shlex.split(cmd), cwd=str(cwd) if cwd else None)
+    s = cmd if isinstance(cmd, str) else " ".join(map(shlex.quote, cmd))
+    print(f"[cmd] {s}")
+    r = subprocess.run(cmd if isinstance(cmd, list) else shlex.split(cmd),
+                       cwd=str(cwd) if cwd else None)
     if check and r.returncode != 0:
         raise RuntimeError(f"command failed: {cmd}")
     return r.returncode
@@ -30,15 +41,15 @@ def run(cmd: str | List[str], cwd: Optional[Path]=None, check: bool=True) -> int
 def which(x: str) -> bool:
     return subprocess.call(['bash','-lc', f'type {shlex.quote(x)} >/dev/null 2>&1']) == 0
 
-# --- io ----------------------------------------------------------------------
+# ---------------- io: XYZ/CSV -------------------
 def read_xyz(xyz_path: Path) -> List[Tuple[str,float,float,float]]:
-    rows = []
-    with open(xyz_path) as f:
+    rows: List[Tuple[str,float,float,float]] = []
+    with open(xyz_path, encoding="utf-8") as f:
         for line in f:
-            s = line.split()
-            if len(s) == 4:
+            t = line.split()
+            if len(t) == 4:
                 try:
-                    el, x, y, z = s[0], float(s[1]), float(s[2]), float(s[3])
+                    el, x, y, z = t[0], float(t[1]), float(t[2]), float(t[3])
                 except ValueError:
                     continue
                 rows.append((el, x, y, z))
@@ -48,28 +59,37 @@ def read_xyz(xyz_path: Path) -> List[Tuple[str,float,float,float]]:
 
 def write_csv_from_xyz(xyz_path: Path, out_csv: Path) -> None:
     rows = read_xyz(xyz_path)
-    df = pd.DataFrame([{"X":x, "Y":y, "Z":z, "R": vdw_radius(el)} for (el,x,y,z) in rows])
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_csv, index=False)
-    print(f"[csv] wrote {out_csv} (n={len(df)})")
+    with open(out_csv, "w", encoding="utf-8") as f:
+        f.write("X,Y,Z,R\n")
+        for (el, x, y, z) in rows:
+            R = vdw_radius(el)
+            f.write(f"{x:.6f},{y:.6f},{z:.6f},{R:.2f}\n")
+    print(f"[csv] wrote {out_csv} (n={len(rows)})")
 
-# --- Gaussian (RESP) ---------------------------------------------------------
-GAUSS_QUEUE_DEFAULT = "gr1.q"
-GAUSS_NPROC_DEFAULT = 40
-
-def write_gaussian_inp_from_xyz(xyz_path: Path, monomer: str, out_inp: Path,
-                                level: str="HF/6-31G*", charge:int=0, mult:int=1) -> None:
+# ------------- Gaussian (ESP .dat) -------------
+def write_gaussian_inp_for_gesp(xyz_path: Path, monomer: str, out_inp: Path,
+                                level: str="HF/6-31G(d)",  # ユーザ指定例に合わせる
+                                charge:int=0, mult:int=1, nproc:int=GAUSS_NPROC_DEFAULT) -> Path:
+    """
+    Pop=MK IOp(6/50=1) を用いて、ESP格子点を <base>.dat に出力する Gaussian 入力を作成。
+    座標ブロックの直後に 1 行、ファイル名を記述する形式。
+    """
     atoms = read_xyz(xyz_path)
-    lines = []
-    lines += [f"%mem=15GB\n", f"%nproc={GAUSS_NPROC_DEFAULT}\n"]
-    # 最適化＋ESP（Merz–Kollman）を一発で
-    lines += ["#P " + level + " Opt Pop=MK IOp(6/33=2,6/42=6)\n\n"]
-    lines += [f"{monomer} opt+esp\n\n", f"{charge} {mult}\n"]
+    base = out_inp.with_suffix("")       # e.g., PFA_HF_esp
+    esp_dat = base.with_suffix(".dat")   # e.g., PFA_HF_esp.dat
+
+    lines: List[str] = []
+    lines += [f"%mem=15GB\n", f"%nproc={nproc}\n"]
+    # 例に合わせて SCF=Tight / Pop=MK / IOp(6/50=1) を指定
+    lines += [f"#P {level} SCF=Tight Pop=MK IOp(6/50=1)\n\n"]
+    lines += [f"{monomer}\n\n", f"{charge} {mult}\n"]
     for el,x,y,z in atoms:
-        lines += [f"{el:2s} {x:.6f} {y:.6f} {z:.6f}\n"]
-    lines += ["\n"]
+        lines += [f"{el:2s}  {x: .6E}  {y: .6E}  {z: .6E}\n"]
+    lines += ["\n", esp_dat.name, "\n"]  # 空行の後、出力ファイル名 1 行
     out_inp.write_text("".join(lines), encoding="utf-8")
-    print(f"[gaussian] wrote {out_inp}")
+    print(f"[gaussian] wrote {out_inp}  (ESP -> {esp_dat.name})")
+    return esp_dat
 
 def write_qsub_r1(inp_path: Path, nproc:int, queue:str) -> Path:
     base = inp_path.with_suffix("")
@@ -96,25 +116,36 @@ def write_qsub_r1(inp_path: Path, nproc:int, queue:str) -> Path:
     print(f"[qsub] wrote {r1}")
     return r1
 
-def resp_make_mol2_from_log(log_path: Path, out_mol2: Path, residue: str="MOL") -> None:
-    # antechamber で二段 RESP（バージョンにより eq オプションの挙動が違うので try→fallback）
+# ------------- antechamber (RESP via GESP) -------------
+def resp_mol2_from_gesp(gesp_dat: Path, xyz_path: Path, out_mol2: Path, residue: str="MOL") -> None:
+    """
+    ESP .dat (Gaussian 'gesp' フォーマット) を使って RESP フィットを実行し、mol2 を出力。
+    antechamber に -fi gesp -c resp を直接渡す。
+    注意: antechamber は構造情報を内部で必要とするので、-fi xyz で構造も渡す方法を取る。
+    ここでは -i <gesp> -fi gesp に加え、-ic <xyz> -fc xyz を使う実装にする。
+    （AmberTools の版により -ic/-fc が無い場合は、作業ディレクトリに XYZ を置く運用でもOK）
+    """
+    if not which("antechamber"):
+        raise SystemExit("antechamber が見つからない（AmberTools をロードして）")
     out_mol2.parent.mkdir(parents=True, exist_ok=True)
-    tried = []
-    try:
-        cmd = f"antechamber -i {log_path} -fi gout -o {out_mol2} -fo mol2 -c resp -eq 2 -rn {residue} -s 2"
-        tried.append(cmd); run(cmd)
-    except Exception:
-        # fallback: BCC
-        cmd2 = f"antechamber -i {log_path} -fi gout -o {out_mol2} -fo mol2 -c bcc -rn {residue} -s 2"
-        tried.append(cmd2); run(cmd2)
-    print(f"[mol2] wrote {out_mol2} via: {'  ||  '.join(tried)}")
 
-def bcc_make_mol2_from_xyz(xyz_path: Path, out_mol2: Path, residue: str="MOL", net_charge:int=0) -> None:
-    out_mol2.parent.mkdir(parents=True, exist_ok=True)
-    run(f"antechamber -i {xyz_path} -fi xyz -o {out_mol2} -fo mol2 -c bcc -nc {net_charge} -rn {residue} -s 2")
-    print(f"[mol2] wrote {out_mol2}")
+    # antechamber のバージョン差を吸収：-ic/-fc が通らない場合は、フォールバックで -j 5 等の既定に任せる
+    cmd_try = [
+        f"antechamber -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2 -ic {xyz_path} -fc xyz",
+        f"antechamber -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2"
+    ]
+    last_err = None
+    for c in cmd_try:
+        try:
+            run(c)
+            print(f"[mol2] wrote {out_mol2} via: {c}")
+            return
+        except Exception as e:
+            last_err = e
+            continue
+    raise SystemExit(f"antechamber(resp from gesp) failed: {last_err}")
 
-# --- Amber single-point energy ----------------------------------------------
+# ------------- Amber single-point energy -------------
 def write_tleap_and_run(mol2_path: Path, out_prefix: Path, frcmods: List[Path]) -> Tuple[Path,Path]:
     tleap_in = out_prefix.with_suffix(".tleap.in")
     prmtop = out_prefix.with_suffix(".prmtop")
@@ -126,10 +157,8 @@ def write_tleap_and_run(mol2_path: Path, out_prefix: Path, frcmods: List[Path]) 
     lines += [f"saveamberparm MOL {prmtop.name} {inpcrd.name}\n", "quit\n"]
     tleap_in.write_text("".join(lines), encoding="utf-8")
 
-    # parmchk2 for missing types (not strictly required if frcmod provided)
-    run(f"parmchk2 -s gaff2 -i {mol2_path.name} -f mol2 -o {out_prefix.name}.frcmod", cwd=mol2_path.parent, check=False)
-
-    # run tleap
+    run(f"parmchk2 -s gaff2 -i {mol2_path.name} -f mol2 -o {out_prefix.name}.frcmod",
+        cwd=mol2_path.parent, check=False)
     run(f"tleap -f {tleap_in.name}", cwd=mol2_path.parent)
     return prmtop, inpcrd
 
@@ -137,7 +166,6 @@ def ensure_ff_calc_in(dst_dir: Path) -> Path:
     dst = dst_dir / "FF_calc.in"
     if dst.exists():
         return dst
-    # resources にあればコピー、なければ最小入力を作る
     src = RES / "FF_calc.in"
     if src.exists():
         dst.write_text(src.read_text(), encoding="utf-8")
@@ -160,7 +188,7 @@ def run_sander_energy(workdir: Path, base: str) -> Path:
     print(f"[amber] energy -> {out}")
     return out
 
-# --- main pipeline -----------------------------------------------------------
+# ---------------- args -------------------------
 @dataclass
 class Args:
     xyz: Path
@@ -174,23 +202,21 @@ class Args:
     queue: str
     nproc: int
     level: str
-    net_charge: int
 
 def parse_args() -> Args:
     import argparse
-    ap = argparse.ArgumentParser(description="XYZ → mol2, CSV, Amber monomer energy (.out)")
+    ap = argparse.ArgumentParser(description="XYZ → (RESP via GESP / BCC) mol2, CSV, Amber monomer energy")
     ap.add_argument("--in", dest="xyz", required=True, help="input XYZ (Element x y z)")
     ap.add_argument("--monomer", required=True, help="monomer name, e.g., PFA")
     ap.add_argument("--mode", choices=["resp","bcc"], default="resp", help="charge model")
     ap.add_argument("--out-mol2", default=None, help="output mol2 path (default: data/monomer/<monomer>_HF_esp.mol2 or _bcc.mol2)")
     ap.add_argument("--out-csv",  default=None, help="output CSV path (default: data/monomer/<monomer>.csv)")
-    ap.add_argument("--amber-ref", action="store_true", help="also write data/amber_ref/<monomer>_HF_esp_gaff2_{p,t}.out")
-    ap.add_argument("--submit", action="store_true", help="(RESP) write & qsub Gaussian, then exit")
-    ap.add_argument("--finalize", action="store_true", help="(RESP) Gaussian .log 完了後に mol2 生成")
+    ap.add_argument("--amber-ref", action="store_true", help="also write data/amber_ref/<monomer>_..._{p,t}.out")
+    ap.add_argument("--submit", action="store_true", help="(RESP) write & qsub Gaussian (ESP .dat), then exit")
+    ap.add_argument("--finalize", action="store_true", help="(RESP) use GESP .dat to build mol2")
     ap.add_argument("--queue", default=GAUSS_QUEUE_DEFAULT)
     ap.add_argument("--nproc", type=int, default=GAUSS_NPROC_DEFAULT)
-    ap.add_argument("--level", default="HF/6-31G*", help="Gaussian level (RESP)")
-    ap.add_argument("--net-charge", type=int, default=0, help="total charge for BCC/RESP")
+    ap.add_argument("--level", default="HF/6-31G(d)", help="Gaussian level for ESP .dat")
     a = ap.parse_args()
 
     xyz = Path(os.path.expanduser(a.xyz)).resolve()
@@ -201,66 +227,67 @@ def parse_args() -> Args:
     out_csv = Path(os.path.expanduser(a.out_csv)).resolve() if a.out_csv else (MONO_DIR / f"{mon}.csv")
     return Args(xyz=xyz, monomer=mon, mode=a.mode, out_mol2=out_mol2, out_csv=out_csv,
                 make_amber_ref=a.amber_ref, submit=a.submit, finalize=a.finalize,
-                queue=a.queue, nproc=a.nproc, level=a.level, net_charge=a.net_charge)
+                queue=a.queue, nproc=a.nproc, level=a.level)
 
+# ---------------- main -------------------------
 def main():
     args = parse_args()
     MONO_DIR.mkdir(parents=True, exist_ok=True)
     AMBER_REF.mkdir(parents=True, exist_ok=True)
 
-    # 1) CSVは即作る
+    # 1) CSV は即作る
     write_csv_from_xyz(args.xyz, args.out_csv)
 
-    # 2) mol2
     if args.mode == "bcc":
+        # ---- BCC: そのまま antechamber で mol2 ----
         if not which("antechamber"):
             raise SystemExit("antechamber が見つからない（AmberTools をロードして）")
-        bcc_make_mol2_from_xyz(args.xyz, args.out_mol2, residue=args.monomer, net_charge=args.net_charge)
+        run(f"antechamber -i {args.xyz} -fi xyz -o {args.out_mol2} -fo mol2 -c bcc -rn {args.monomer} -s 2")
+        print(f"[mol2] wrote {args.out_mol2}")
 
-    else:  # RESP
+    else:
+        # ---- RESP via GESP: GaussianでESP.datを出して、それでRESP ----
         work = args.out_mol2.parent; work.mkdir(parents=True, exist_ok=True)
-        inp = args.out_mol2.with_suffix(".inp")
-        write_gaussian_inp_from_xyz(args.xyz, args.monomer, inp, level=args.level, charge=args.net_charge, mult=1)
+        base = work / f"{args.monomer}_HF_esp"
+        inp = base.with_suffix(".inp")
+        gesp_dat = write_gaussian_inp_for_gesp(args.xyz, args.monomer, inp, level=args.level,
+                                               charge=0, mult=1, nproc=args.nproc)
         r1 = write_qsub_r1(inp, nproc=args.nproc, queue=args.queue)
-        # copy xyz beside for trace
+        # 追跡用に XYZ を横に置く
         (work / f"{args.monomer}.xyz").write_text(Path(args.xyz).read_text())
 
         if args.submit:
             run(["qsub", r1.name], cwd=work)
-            print("[resp] submitted. 収束後に --finalize で再実行して mol2 を作る。")
+            print("[resp-gesp] submitted. 収束後に --finalize で mol2 を作る。")
             return
 
-        log = inp.with_suffix(".log")
         if args.finalize:
-            if not log.exists():
-                raise SystemExit(f"Gaussian .log がまだ無い: {log}")
-            if not which("antechamber"):
-                raise SystemExit("antechamber が見つからない（AmberTools をロードして）")
-            resp_make_mol2_from_log(log, args.out_mol2, residue=args.monomer)
+            if not gesp_dat.exists():
+                # .dat ファイル名が変わっている・場所が異なるケースのため .dat を探索
+                cand = list(work.glob(f"{args.monomer}_HF_esp*.dat"))
+                if not cand:
+                    raise SystemExit(f"GESP .dat が見つからない: {gesp_dat}  （work={work}）")
+                gesp_dat = cand[0]
+            resp_mol2_from_gesp(gesp_dat, work / f"{args.monomer}.xyz", args.out_mol2, residue=args.monomer)
         else:
-            print("[resp] --submit か --finalize を指定して。何もしない。")
+            print("[resp-gesp] --submit か --finalize を指定して。何もしない。")
             return
 
-    # 3) Amber 単分子エネルギー（p/t 両方の .out を互換名で作る）
+    # 3) Amber 単分子エネルギー（任意）
     if args.make_amber_ref:
         if not which("tleap") or not which("sander"):
             raise SystemExit("tleap/sander が見つからない（AmberTools をロードして）")
         wd = args.out_mol2.parent
-        # frcmod はあれば読む
-        frcmods = [RES / "epsilon_p.frcmod", RES / "epsilon_t_3.frcmod"]
-        # 共通の parm を作って sander を2回（p/t名）で保存（内容は同一でOK）
-        base = f"{args.monomer}_HF_esp_gaff2" if args.mode=="resp" else f"{args.monomer}_bcc_gaff2"
-        prmtop, inpcrd = write_tleap_and_run(args.out_mol2, wd / base, frcmods=[])
-
-        # p/t それぞれの .out を data/amber_ref/ に配置（互換名 lower）
-        out_p = AMBER_REF / f"{args.monomer.lower()}_HF_esp_gaff2_p.out"
-        out_t = AMBER_REF / f"{args.monomer.lower()}_HF_esp_gaff2_t.out"
-        # sander 実行（同じ構造でOK）
-        tmp_out = run_sander_energy(wd, base)
-        out_p.write_text(tmp_out.read_text())
-        out_t.write_text(tmp_out.read_text())
+        tag = "HF_esp" if args.mode=="resp" else "bcc"
+        base2 = f"{args.monomer}_{tag}_gaff2"
+        prmtop, inpcrd = write_tleap_and_run(args.out_mol2, wd / base2, frcmods=[])
+        tmp_out = run_sander_energy(wd, base2)
+        out_p = AMBER_REF / f"{args.monomer.lower()}_{tag}_gaff2_p.out"
+        out_t = AMBER_REF / f"{args.monomer.lower()}_{tag}_gaff2_t.out"
+        out_p.write_text(tmp_out.read_text(), encoding="utf-8")
+        out_t.write_text(tmp_out.read_text(), encoding="utf-8")
         print(f"[amber_ref] wrote {out_p}")
-        print(f"[amber_ref] wrote {out_t}")  ###ここのp,tの使い分けは必要ないので削除します
+        print(f"[amber_ref] wrote {out_t}")
 
 if __name__ == "__main__":
     main()

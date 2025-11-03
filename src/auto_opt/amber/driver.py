@@ -1,4 +1,7 @@
 ##tetracene層内計算
+"""
+python -m auto_opt.amber.driver --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 2 --isTest
+"""
 import pandas as pd
 import time
 from auto_opt.amber.make_io import exec_gjf##計算した点のxyzfileを出す
