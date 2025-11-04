@@ -33,17 +33,22 @@ def _next_section_idx(lines: List[str], start: int) -> int:
         j += 1
     return j
 
-# 先頭付近の import/定数の下あたりに追加
-import shutil
-import subprocess
-
 def _guess_mol2_path(monomer_name: str) -> Path:
+    """
+    data/monomer 内を探索:
+      1) <monomer_name>.mol2
+      2) <monomer_name>_HF_esp.mol2
+      3) <monomer_name>* .mol2 のうち最初
+    """
     cand1 = MONO / f"{monomer_name}.mol2"
-    if cand1.exists(): return cand1
+    if cand1.exists():
+        return cand1
     cand2 = MONO / f"{monomer_name}_HF_esp.mol2"
-    if cand2.exists(): return cand2
+    if cand2.exists():
+        return cand2
     gl = sorted(MONO.glob(f"{monomer_name}*.mol2"))
-    if gl: return gl[0]
+    if gl:
+        return gl[0]
     raise FileNotFoundError(f"mol2 not found for monomer '{monomer_name}' under {MONO}")
 
 @lru_cache(maxsize=16)
@@ -196,7 +201,7 @@ def get_xyzR_lines(xyzr_array: np.ndarray, monomer_name: str) -> List[str]:
 #     Amber 実行スクリプト
 # ==========================
 
-def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, str]:
+def get_one_exe(auto_dir: str, file_name: str) -> Tuple[str, str]:
     """
     amber/ に job_*.sh と *_tleap.in を書き出す。
     - parmchk2 で {file_basename}.frcmod を生成
@@ -207,14 +212,11 @@ def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, 
     amber_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(amber_dir, exist_ok=True)
 
-    # モノマー mol2 の絶対パスを特定
-    monomer_mol2 = str(_guess_mol2_path(monomer_name))
-
     # tleap 入力（汎用化）
     lines_tleap = [
         "source leaprc.gaff2\n",
         f"MOL = loadmol2 {file_basename}.mol2\n",
-        f"loadamberparams {monomer_name}_gaff2.frcmod\n",
+        f"loadamberparams {file_basename}.frcmod\n",
         f"saveamberparm MOL {file_basename}.prmtop {file_basename}.inpcrd\n",
         "quit\n",
     ]
@@ -227,11 +229,7 @@ def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, 
         "source ~/anaconda3/etc/profile.d/conda.sh\n",
         "conda activate amber\n",
         "\n",
-        # amber 環境の中で、一度だけモノマー frcmod を生成
-        f'if [ ! -f "{monomer_name}_gaff2.frcmod" ]; then\n',
-        f'  echo "[once] parmchk2 for {monomer_name}";\n',
-        f'  parmchk2 -s gaff2 -i "{monomer_mol2}" -f mol2 -o "{monomer_name}_gaff2.frcmod";\n',
-        f'fi\n',
+        f"parmchk2 -a Y -s gaff2 -i {file_basename}.mol2 -f mol2 -o {file_basename}.frcmod\n",
         f"tleap -f {file_basename}_tleap.in\n",
         f"sander -O -i FF_calc.in -o {file_basename}.out "
         f"-p {file_basename}.prmtop -c {file_basename}.inpcrd "
@@ -362,7 +360,7 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type
 
     # mol2 + job
     file_name = make_gjf_xyz(auto_dir, monomer_name, params_dict, structure_type)
-    file_job, out_name = get_one_exe(auto_dir, file_name, monomer_name)
+    file_job, out_name = get_one_exe(auto_dir, file_name)
 
     if not isTest:
         subprocess.run(['chmod', '+x', file_job], check=False)
