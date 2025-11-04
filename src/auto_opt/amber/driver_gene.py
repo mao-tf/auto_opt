@@ -1,10 +1,10 @@
 ##tetracene層内計算
 """
-python -m auto_opt.amber.driver --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 2 --isTest
+python -m auto_opt.amber.driver_gene --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 2 --isTest
 """
 import pandas as pd
 import time
-from auto_opt.amber.make_io import exec_gjf##計算した点のxyzfileを出す
+from auto_opt.amber.make_io_gene import exec_gjf ##計算した点のxyzfileを出す
 from auto_opt.utils import amber_get_E
 import argparse
 import numpy as np
@@ -315,5 +315,3 @@ if __name__ == '__main__':
     print("----main process----")
     main_process(args)
     print("----finish process----")
-
-AMBER_REF
