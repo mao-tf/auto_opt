@@ -3,6 +3,10 @@
 # -*- coding: utf-8 -*-
 
 """
+conda activate amber 
+pip install -e .
+をしてから
+
 ESP .dat を書かせる
 python -m auto_opt.monomer.prep_monomer --in data/monomer/PFA.xyz --monomer PFA --mode resp --submit
 .dat から RESP mol2 を生成（& Amber基準Eも作るなら --amber-ref)
@@ -52,7 +56,7 @@ def run(cmd: str | List[str], cwd: Optional[Path]=None, check: bool=True) -> int
 def which(x: str) -> bool:
     # bash を起動せず、純粋に PATH から探す
     return shutil.which(x) is not None
-    
+
 # ---------------- io: XYZ/CSV -------------------
 def read_xyz(xyz_path: Path) -> List[Tuple[str,float,float,float]]:
     rows: List[Tuple[str,float,float,float]] = []
@@ -290,16 +294,17 @@ def main():
         if not which("tleap") or not which("sander"):
             raise SystemExit("tleap/sander が見つからない（AmberTools をロードして）")
         wd = args.out_mol2.parent
+        # resp/bcc でタグを決める
         tag = "HF_esp" if args.mode=="resp" else "bcc"
+        # tleap/sander を実行（作業ディレクトリ側のベース名）
         base2 = f"{args.monomer}_{tag}_gaff2"
         prmtop, inpcrd = write_tleap_and_run(args.out_mol2, wd / base2, frcmods=[])
         tmp_out = run_sander_energy(wd, base2)
-        out_p = AMBER_REF / f"{args.monomer.lower()}_{tag}_gaff2_p.out"
-        out_t = AMBER_REF / f"{args.monomer.lower()}_{tag}_gaff2_t.out"
-        out_p.write_text(tmp_out.read_text(), encoding="utf-8")
-        out_t.write_text(tmp_out.read_text(), encoding="utf-8")
-        print(f"[amber_ref] wrote {out_p}")
-        print(f"[amber_ref] wrote {out_t}")
+        # --- ここから出力配置 ---
+        # ① 要望の単一ファイル名：amber_ref/Monomer_HF_esp_gaff2.out
+        single_out = AMBER_REF / f"{args.monomer}_{tag}_gaff2.out"
+        single_out.write_text(tmp_out.read_text(), encoding="utf-8")
+        print(f"[amber_ref] wrote {single_out}")
 
 if __name__ == "__main__":
     main()
