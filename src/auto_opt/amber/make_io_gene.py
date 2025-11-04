@@ -46,24 +46,6 @@ def _guess_mol2_path(monomer_name: str) -> Path:
     if gl: return gl[0]
     raise FileNotFoundError(f"mol2 not found for monomer '{monomer_name}' under {MONO}")
 
-def ensure_monomer_frcmod(monomer_name: str) -> Path:
-    """
-    data/monomer/<monomer>_gaff2.frcmod を用意してパスを返す。
-    なければ一度だけ parmchk2 を回して作る。
-    """
-    mol2 = _guess_mol2_path(monomer_name)
-    out = MONO / f"{monomer_name}_gaff2.frcmod"
-    if out.exists():
-        return out
-    # 一回だけ生成
-    cmd = [
-        "parmchk2", "-s", "gaff2",
-        "-i", str(mol2), "-f", "mol2",
-        "-o", str(out)
-    ]
-    subprocess.run(cmd, check=True)
-    return out
-
 @lru_cache(maxsize=16)
 def _load_mol2_params(monomer_name: str) -> Tuple[List[Tuple[str,float]], List[Tuple[int,int,str]]]:
     """
@@ -225,11 +207,8 @@ def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, 
     amber_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(amber_dir, exist_ok=True)
 
-    # モノマー frcmod を amber 作業ディレクトリにコピー（ファイル名固定で読みやすく）
-    mono_frcmod_src = ensure_monomer_frcmod(monomer_name)
-    mono_frcmod_dst = os.path.join(amber_dir, f"{monomer_name}_gaff2.frcmod")
-    if not os.path.exists(mono_frcmod_dst):
-        shutil.copy2(mono_frcmod_src, mono_frcmod_dst)
+    # モノマー mol2 の絶対パスを特定
+    monomer_mol2 = str(_guess_mol2_path(monomer_name))
 
     # tleap 入力（汎用化）
     lines_tleap = [
@@ -248,6 +227,11 @@ def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, 
         "source ~/anaconda3/etc/profile.d/conda.sh\n",
         "conda activate amber\n",
         "\n",
+        # amber 環境の中で、一度だけモノマー frcmod を生成
+        f'if [ ! -f "{monomer_name}_gaff2.frcmod" ]; then\n',
+        f'  echo "[once] parmchk2 for {monomer_name}";\n',
+        f'  parmchk2 -s gaff2 -i "{monomer_mol2}" -f mol2 -o "{monomer_name}_gaff2.frcmod";\n',
+        f'fi\n',
         f"tleap -f {file_basename}_tleap.in\n",
         f"sander -O -i FF_calc.in -o {file_basename}.out "
         f"-p {file_basename}.prmtop -c {file_basename}.inpcrd "
