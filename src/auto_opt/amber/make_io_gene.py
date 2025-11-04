@@ -33,23 +33,36 @@ def _next_section_idx(lines: List[str], start: int) -> int:
         j += 1
     return j
 
+# 先頭付近の import/定数の下あたりに追加
+import shutil
+import subprocess
+
 def _guess_mol2_path(monomer_name: str) -> Path:
-    """
-    data/monomer 内を探索:
-      1) <monomer_name>.mol2
-      2) <monomer_name>_HF_esp.mol2
-      3) <monomer_name>* .mol2 のうち最初
-    """
     cand1 = MONO / f"{monomer_name}.mol2"
-    if cand1.exists():
-        return cand1
+    if cand1.exists(): return cand1
     cand2 = MONO / f"{monomer_name}_HF_esp.mol2"
-    if cand2.exists():
-        return cand2
+    if cand2.exists(): return cand2
     gl = sorted(MONO.glob(f"{monomer_name}*.mol2"))
-    if gl:
-        return gl[0]
+    if gl: return gl[0]
     raise FileNotFoundError(f"mol2 not found for monomer '{monomer_name}' under {MONO}")
+
+def ensure_monomer_frcmod(monomer_name: str) -> Path:
+    """
+    data/monomer/<monomer>_gaff2.frcmod を用意してパスを返す。
+    なければ一度だけ parmchk2 を回して作る。
+    """
+    mol2 = _guess_mol2_path(monomer_name)
+    out = MONO / f"{monomer_name}_gaff2.frcmod"
+    if out.exists():
+        return out
+    # 一回だけ生成
+    cmd = [
+        "parmchk2", "-s", "gaff2",
+        "-i", str(mol2), "-f", "mol2",
+        "-o", str(out)
+    ]
+    subprocess.run(cmd, check=True)
+    return out
 
 @lru_cache(maxsize=16)
 def _load_mol2_params(monomer_name: str) -> Tuple[List[Tuple[str,float]], List[Tuple[int,int,str]]]:
@@ -201,7 +214,7 @@ def get_xyzR_lines(xyzr_array: np.ndarray, monomer_name: str) -> List[str]:
 #     Amber 実行スクリプト
 # ==========================
 
-def get_one_exe(auto_dir: str, file_name: str) -> Tuple[str, str]:
+def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, str]:
     """
     amber/ に job_*.sh と *_tleap.in を書き出す。
     - parmchk2 で {file_basename}.frcmod を生成
@@ -212,11 +225,17 @@ def get_one_exe(auto_dir: str, file_name: str) -> Tuple[str, str]:
     amber_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(amber_dir, exist_ok=True)
 
+    # モノマー frcmod を amber 作業ディレクトリにコピー（ファイル名固定で読みやすく）
+    mono_frcmod_src = ensure_monomer_frcmod(monomer_name)
+    mono_frcmod_dst = os.path.join(amber_dir, f"{monomer_name}_gaff2.frcmod")
+    if not os.path.exists(mono_frcmod_dst):
+        shutil.copy2(mono_frcmod_src, mono_frcmod_dst)
+
     # tleap 入力（汎用化）
     lines_tleap = [
         "source leaprc.gaff2\n",
         f"MOL = loadmol2 {file_basename}.mol2\n",
-        f"loadamberparams {file_basename}.frcmod\n",
+        f"loadamberparams {monomer_name}_gaff2.frcmod\n",
         f"saveamberparm MOL {file_basename}.prmtop {file_basename}.inpcrd\n",
         "quit\n",
     ]
@@ -229,7 +248,6 @@ def get_one_exe(auto_dir: str, file_name: str) -> Tuple[str, str]:
         "source ~/anaconda3/etc/profile.d/conda.sh\n",
         "conda activate amber\n",
         "\n",
-        f"parmchk2 -a Y -s gaff2 -i {file_basename}.mol2 -f mol2 -o {file_basename}.frcmod\n",
         f"tleap -f {file_basename}_tleap.in\n",
         f"sander -O -i FF_calc.in -o {file_basename}.out "
         f"-p {file_basename}.prmtop -c {file_basename}.inpcrd "
@@ -360,7 +378,7 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type
 
     # mol2 + job
     file_name = make_gjf_xyz(auto_dir, monomer_name, params_dict, structure_type)
-    file_job, out_name = get_one_exe(auto_dir, file_name)
+    file_job, out_name = get_one_exe(auto_dir, file_name, monomer_name)
 
     if not isTest:
         subprocess.run(['chmod', '+x', file_job], check=False)
