@@ -4,7 +4,9 @@
 dft_pipeline.py
 
 - 抽出: step1.csv から (alpha,z) ごとに (a,b) の局所最小を抽出 → filtered_step1.csv
+python -m auto_opt.gaussian.pipeline --auto-dir runs/ANT_test --monomer ANT --extract-only
 - 投入: filtered_step1.csv を読み、各行(alpha,a,b,z)について a1/b1/t1 の 3ダイマーを 1つの .inp にし qsub
+python -m auto_opt.gaussian.pipeline --auto-dir runs/ANT_test --monomer ANT --submit-only
 - モード: 抽出のみ / 投入のみ / 両方
 """
 
@@ -288,7 +290,7 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
                     running = sum(MACHINE_SPEC[machine]["queue"] in line for line in out.splitlines())
                     if running < MAX_PARALLEL[machine]:
                         break
-                    time.sleep(3)
+                    time.sleep(0.5)
                 except Exception:
                     break  # qstat が無ければスキップ
 
