@@ -8,6 +8,9 @@ python -m auto_opt.gaussian.pipeline --auto-dir runs/ANT_test --monomer ANT --ex
 - 投入: filtered_step1.csv を読み、各行(alpha,a,b,z)について a1/b1/t1 の 3ダイマーを 1つの .inp にし qsub
 python -m auto_opt.gaussian.pipeline --auto-dir runs/ANT_test --monomer ANT --submit-only
 - モード: 抽出のみ / 投入のみ / 両方
+
+filtered_step1.csvを作るところでstatus(Done,InProgress,NotYet)行を作って
+driver.csvを作っている最中からpipelineを回してfiltered_step1.csvを作ってNotYetのものだけを流せるようにしたい。
 """
 
 from __future__ import annotations
@@ -180,8 +183,7 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: Dict[str,float], mac
 
     sh_filename = Path(file_name).with_suffix('.r1').name
     sh_path = inp_dir / sh_filename
-    sh_path.write_text("".join(cc_list), encoding="utf-8")
-    os.chmod(sh_path, 0o755)
+    sh_path.write_text("".join(cc_list), encoding="utf-8")  ## Path.write_text()は文字列をPathに書き込む関数. encoding="utf-8"にすることで日本語コメントや全角スペースなども文字化けしない
 
     if not isTest:
         subprocess.run(['qsub', sh_path.name], check=False, cwd=str(inp_dir))

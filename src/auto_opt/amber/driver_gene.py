@@ -84,7 +84,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
             df_E_1.loc[idx, ['E1','status']] = [round(E1,4),'Done']
             df_E_1.to_csv(auto_csv_1,index=False)
             #time.sleep(1)
-            break#2つ同時に計算終わったりしたらまずいので一個で切る
+            #2つ同時に計算終わったりしたらまずいので一個で切る
     
     auto_csv_2 = os.path.join(auto_dir,'step1_2.csv')
     df_E_2 = pd.read_csv(auto_csv_2)
@@ -107,7 +107,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
             df_E_2.loc[idx, ['E2', 'status']] = [round(E2,4), 'Done']
             df_E_2.to_csv(auto_csv_2, index=False)  # Updated to auto_csv_2
             #time.sleep(1)
-            break  # Break after one iteration
+              #  after one iteration
     
     auto_csv_3 = os.path.join(auto_dir, 'step1_3.csv')
     df_E_3 = pd.read_csv(auto_csv_3)
@@ -129,7 +129,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
             E3=np.round(E3,4)
             df_E_3.loc[idx, ['E3', 'status']] = [round(E3,4), 'Done']
             df_E_3.to_csv(auto_csv_3, index=False)  # Updated to auto_csv_3
-            break  # Break after one iteration
+              #  after one iteration
 
     auto_csv = os.path.join(auto_dir,'step1.csv')
     df_E = pd.read_csv(auto_csv)
@@ -152,7 +152,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
             E=2*E1+2*E2+4*E3
             df_E.loc[idx, ['E','E1','E2','E3','status']] = [round(E,4),round(E1,4),round(E2,4),round(E3,4),'Done']
             df_E.to_csv(auto_csv,index=False)
-            break#2つ同時に計算終わったりしたらまずいので一個で切る
+            #2つ同時に計算終わったりしたらまずいので一個で切る
     
     dict_matrix = get_params_dict(auto_dir,num_nodes)##更新分を流す a1/HOME/HASEGAWALABz2まで取得
     if len(dict_matrix)!=0:#終わりがまだ見えないなら

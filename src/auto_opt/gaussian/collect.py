@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-dft_collect.py
+python -m auto_opt.gaussian.collect --auto-dir runs/ANT_test --monomer ANT 
 
 - filtered_step1.csv（列: alpha,a,b,z …）を読み、
   auto-dir/gaussian/内の .log を utils.dft_get_E() で解析。
