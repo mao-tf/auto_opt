@@ -273,12 +273,12 @@ def get_opt_params_dict(df_cur, init_params_dict,fixed_params_dict):
         for a in [a_init_prev-0.1,a_init_prev,a_init_prev+0.1]:
                     for b in [b_init_prev-0.1,b_init_prev,b_init_prev+0.1]:
                                 for z in [z_init_prev]:   
-                                          a = np.round(a,1);b = np.round(b,1);z=np.round(z,1)
-                                          df_val_xyz = df_val[(df_val['a']==a)&(df_val['b']==b)&(df_val['z']==z)&(df_val['status']=='Done')]
-                                          if len(df_val_xyz)==0:
-                                              para_list.append([a,b,z])
-                                              continue
-                                          xyz_list.append([a,b,z]);E_list.append(df_val_xyz['E'].values[0])
+                                    a = np.round(a,1);b = np.round(b,1);z=np.round(z,1)
+                                    df_val_xyz = df_val[(df_val['a']==a)&(df_val['b']==b)&(df_val['z']==z)&(df_val['status']=='Done')]
+                                    if len(df_val_xyz)==0:
+                                        para_list.append([a,b,z])
+                                        continue
+                                    xyz_list.append([a,b,z]);E_list.append(df_val_xyz['E'].values[0])
         if len(para_list) != 0:
             return False,para_list
         a_init,b_init,z_init = xyz_list[np.argmin(np.array(E_list))]

@@ -186,7 +186,7 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: Dict[str,float], mac
     sh_path.write_text("".join(cc_list), encoding="utf-8")  ## Path.write_text()は文字列をPathに書き込む関数. encoding="utf-8"にすることで日本語コメントや全角スペースなども文字化けしない
 
     if not isTest:
-        subprocess.run(['qsub', sh_path.name], check=False, cwd=str(inp_dir))
+        subprocess.run(['qsub', sh_path.name], check=False, cwd=str(inp_dir))  ## ターミナル上でで[]内のコマンドを実行する
 
     log_file_name = Path(file_name).with_suffix('.log').name
     return log_file_name
@@ -207,12 +207,42 @@ def _is_local_min(a: float, b: float, e: float, grid: Dict[Tuple[float,float], f
         return False
     return (all(e <= v for v in nb)) and any(e < v for v in nb)
 
-def extract_from_step1(step1_csv: str, out_csv: str) -> pd.DataFrame:
+def _read_step1_auto(step1_csv: str, auto_dir: str | Path | None) -> pd.DataFrame:
+    """
+    - step1_csv が実在すればそれだけ読む（旧仕様）。
+    - 無ければ auto_dir 以下のサブディレクトリから step1.csv を集めて結合。
+    """
+    p = Path(step1_csv)
+    if p.is_file():
+        # 旧仕様そのまま
+        return pd.read_csv(p)
+
+    if auto_dir is None:
+        raise FileNotFoundError(f"step1.csv not found: {p}")
+
+    root = Path(auto_dir)
+    dfs = []
+    for sub in sorted(root.iterdir()):
+        if not sub.is_dir():
+            continue
+        p2 = sub / "step1.csv"
+        if p2.is_file():  ## サブディレクトリの中にstep1.csvが存在したら
+            dfs.append(pd.read_csv(p2))
+
+    if not dfs:
+        raise FileNotFoundError(
+            f"step1.csv が見つからない: {p} も無いし {root}/*/step1.csv も無い"
+        )
+
+    df_all = pd.concat(dfs, ignore_index=True)
+    return df_all
+
+def extract_from_step1(step1_csv: str, out_csv: str, auto_dir: str | None = None) -> pd.DataFrame:
     """
     step1.csv (列: alpha/またはtheta, a, b, z, E[, E1, E2, E3], status) から
     (alpha,z) ごとに (a,b) の局所最小を抽出し、E, E1, E2, E3 も含めて out_csv へ。
     """
-    df = pd.read_csv(step1_csv)
+    df = _read_step1_auto(step1_csv, auto_dir)
 
     need_base = {'alpha','a','b','z','E','status'}
     missing = [c for c in need_base if c not in df.columns]
@@ -339,7 +369,7 @@ def main():
         raise SystemExit("extract-only と submit-only は同時指定できない")
 
     if not args.submit_only:
-        extract_from_step1(step1_csv, out_csv)
+        extract_from_step1(step1_csv, out_csv, auto_dir=auto_dir)
 
     if not args.extract_only:
         submit_from_candidates(auto_dir, args.monomer, out_csv, submit=True, throttle=not args.no_throttle)
