@@ -67,13 +67,14 @@ def vdw_R(axyz_1, axyz_2, theta_deg: float) -> float:
 
 # --- スイープ本体 ------------------------------------------------------------
 def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: float,
-          alpha_step: float, theta_step: float, eps_a: float, eps_b: float) -> None:
+          alpha_min:float, alpha_max:float, alpha_step: float,
+          theta_step: float, eps_a: float, eps_b: float) -> None:
 
     out = pathlib.Path(out_dir); out.mkdir(parents=True, exist_ok=True)
     monomer_name = pathlib.Path(monomer_path).stem
 
     z_vals = [round(z, 1) for z in np.arange(z_min, z_max + 1e-9, z_step)]
-    alphas = [float(a) for a in np.arange(0, 91, alpha_step)]
+    alphas = [float(a) for a in np.arange(alpha_min, alpha_max + 1e-9, alpha_step)]
     thetas = [float(t) for t in np.arange(0, 91, theta_step)]
     cosb = {b: math.cos(math.radians(b)) for b in thetas}
     sinb = {b: math.sin(math.radians(b)) for b in thetas}
@@ -117,13 +118,16 @@ def main():
     ap.add_argument('--z-min', type=float, default=0.0)
     ap.add_argument('--z-max', type=float, required=True)
     ap.add_argument('--z-step', type=float, default=0.1)
+    ap.add_argument('--alpha-min', type=float, default=0)
+    ap.add_argument('--alpha-max', type=float, default=90)
     ap.add_argument('--alpha-step', type=float, default=5)
     ap.add_argument('--theta-step', type=float, default=5)
     ap.add_argument('--eps-a', type=float, default=1e-3)
     ap.add_argument('--eps-b', type=float, default=1e-2)
     args = ap.parse_args()
     sweep(args.monomer_path, args.out_dir, args.z_min, args.z_max, args.z_step,
-          args.alpha_step, args.theta_step, args.eps_a, args.eps_b)
+          args.alpha_min, args.alpha_max,args.alpha_step,
+          args.theta_step, args.eps_a, args.eps_b)
 
 if __name__ == '__main__':
     main()
