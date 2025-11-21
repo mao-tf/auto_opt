@@ -78,6 +78,7 @@ def vdw_R(axyz_1, axyz_2, theta_deg: float) -> float:
 # --- スイープ本体 ------------------------------------------------------------
 def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: float,
           alpha_min:float, alpha_max:float, alpha_step: float,
+          phi_min: float, phi_max: float, phi_step: float,
           theta_step: float, eps_a: float, eps_b: float) -> None:
 
     out = pathlib.Path(out_dir); out.mkdir(parents=True, exist_ok=True)
