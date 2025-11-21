@@ -79,7 +79,8 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
 
         for run in _true_runs(mask):
             # 端点は常に採用
-            pick = {run[0], run[-1]}
+            pick = {#run[0], 
+                    run[-1]}
 
             # --minima 指定時のみ、局所最小も採用
             if minima:
@@ -93,12 +94,12 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
                 b = float(g.loc[i, "b"])
                 a_r = np.round(a, round_ab)
                 b_r = np.round(b, round_ab)
-                rows.append([float(alpha), a_r, b_r, float(z), "NotYet"])
+                rows.append([float(alpha), float(phi), a_r, b_r, float(z), "NotYet"])
 
     if not rows:
         raise ValueError("抽出結果が空です。TorF条件や入力CSVを確認してください。")
 
-    out_df = pd.DataFrame(rows, columns=["alpha", "a", "b", "z", "status"])
+    out_df = pd.DataFrame(rows, columns=["alpha", "phi", "a", "b", "z", "status"])
     out_df = out_df.drop_duplicates().sort_values(["z", "alpha", "phi", "a", "b"]).reset_index(drop=True)
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(out_csv, index=False)
