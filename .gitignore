@@ -5,7 +5,6 @@ __pycache__/
 .vscode/
 
 runs/
-gaussian/
 gaussview/
 *.log
 *.out
