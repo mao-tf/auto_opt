@@ -34,11 +34,10 @@ def init_process(args):
     df_init = pd.read_csv(auto_dir_root / 'step1_init_params.csv')
 
     # alpha ごとにサブディレクトリを作る
-    phi_list = np.arange(-20,21,2)
+    phi_list = sorted(df_init['phi'].unique())
     # もしくは df_init["alpha"].unique() でもよい
 
-    i=0
-    for phi in phi_list:
+    for i, phi in enumerate(phi_list):
         if i%2==0: 
             machine_type=1
         else: 
@@ -93,7 +92,6 @@ def init_process(args):
         # ジョブ投げ
         subprocess.run(['qsub', str(job_path)])
 
-        i+=1
 
 def update_value_in_df(df, index, key, value):
     df.loc[index, key] = value
