@@ -103,8 +103,8 @@ def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: fl
                 Rz = Rod(ez, alpha)
                 axyz_c, axyz_a = parallel_pair(base_axyz, Rx, Rz, 0)
                 axyz_c, axyz_b = parallel_pair(base_axyz, Rx, Rz, z)
-                Ra = vdw_R(axyz_c, axyz_a, 0.0)
-                Rb = vdw_R(axyz_c, axyz_b, 90.0)
+                R_a = vdw_R(axyz_c, axyz_a, 0.0)
+                R_b = vdw_R(axyz_c, axyz_b, 90.0)
                 axyz_1, axyz_2 = t_shaped_pair(base_axyz, Rx, Rz, z)
                 for beta in thetas:
                     R_clps = vdw_R(axyz_1, axyz_2, beta)
