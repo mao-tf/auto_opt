@@ -30,7 +30,7 @@ def t_shaped_pair(base_axyz, Rx, Rz, z):
     axyz_1, axyz_2 = [], []
     for x, y, zz, sym in base_axyz:
         rot = np.matmul(np.array([x, y, zz]), Rx)
-        rot = np.matmul(np.array([x, y, zz]), Rz)  # row @ R ## Rzはz周りのrodrigues
+        rot = np.matmul(rot, Rz)  # row @ R ## Rzはz周りのrodrigues
         axyz_1.append([ rot[0],  rot[1],  rot[2],     sym])
         axyz_2.append([-rot[0],  rot[1],  rot[2] + z, sym])
     return axyz_1, axyz_2
@@ -39,7 +39,7 @@ def parallel_pair(base_axyz, Rx, Rz, z):
     axyz_1, axyz_2 = [], []
     for x, y, zz, sym in base_axyz:
         rot = np.matmul(np.array([x, y, zz]), Rx)
-        rot = np.matmul(np.array([x, y, zz]), Rz)  # row @ R ## Rzはz周りのrodrigues
+        rot = np.matmul(rot, Rz)  # row @ R ## Rzはz周りのrodrigues
         axyz_1.append([ rot[0],  rot[1],  rot[2],       sym])
         axyz_2.append([ rot[0],  rot[1],  rot[2] + 2*z, sym])
     return axyz_1, axyz_2
@@ -111,7 +111,7 @@ def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: fl
                     ca = R_a - 2.0 * R_clps * cosb[beta]
                     cb = R_b - 2.0 * R_clps * sinb[beta]
                     ok = (ca <= eps_a) and (cb <= eps_b)
-                    all_rows.append([alpha, beta, z, R_clps, ok])
+                    all_rows.append([alpha, phi, beta, z, R_clps, ok])
 
     df = pd.DataFrame(all_rows, columns=['alpha','phi','beta','z','R_clps','TorF'])
     df = df.sort_values(['z','alpha','phi','beta']).reset_index(drop=True)
@@ -144,3 +144,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
