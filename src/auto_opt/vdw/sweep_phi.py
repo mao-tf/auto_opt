@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-python -m auto_opt.vdw.sweep --monomer-path data/monomer/PFA.xyz --out-dir runs/PFA_test3 --z-max 1.3 --z-step 0.1 --theta-step 1
+python -m auto_opt.vdw.sweep_phi --monomer-path data/monomer/ANT.xyz --out-dir runs/ANT_test4 --alpha-min 65 --alpha-max 65 --z-max 3.0 --z-step 0.2 --phi-min -20 --phi-max 20 --phi-step 2 --theta-step 1
 """
 from __future__ import annotations
 import math, argparse, pathlib

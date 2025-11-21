@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-python -m auto_opt.amber.job --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 10 
+python -m auto_opt.amber.job_phi --auto-dir runs/ANT_test4 --monomer-name ANT --num-nodes 10 
 """
 import os
 os.environ['HOME'] = '/data/group1/z40145w'
@@ -62,7 +62,7 @@ def init_process(args):
 
         # 実際に投げるコマンドを組み立てる
         cmd = (
-            'python -m auto_opt.amber.driver_gene '
+            'python -m auto_opt.amber.driver_gene_phi '
             f'--auto-dir {auto_dir_for_driver} '
             f'--monomer-name {args.monomer_name} '
             f'--num-nodes {args.num_nodes}'
