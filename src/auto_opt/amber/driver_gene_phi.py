@@ -4,7 +4,7 @@ python -m auto_opt.amber.driver_gene --auto-dir runs/PFA_test --monomer-name PFA
 """
 import pandas as pd
 import time
-from auto_opt.amber.make_io_gene import exec_gjf ##計算した点のxyzfileを出す
+from auto_opt.amber.make_io_gene_phi import exec_gjf ##計算した点のxyzfileを出す
 from auto_opt.utils import amber_get_E
 import argparse
 import numpy as np
