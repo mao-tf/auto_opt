@@ -166,18 +166,29 @@ def write_tleap_and_run(mol2_path: Path, out_prefix: Path, frcmods: List[Path]) 
     tleap_in = out_prefix.with_suffix(".tleap.in")
     prmtop = out_prefix.with_suffix(".prmtop")
     inpcrd = out_prefix.with_suffix(".inpcrd")
+    
+    # 修正: 生成される予定の frcmod ファイル名を定義
+    generated_frcmod = f"{out_prefix.name}.frcmod"
+
     lines = ["source leaprc.gaff2\n", f"MOL = loadmol2 {mol2_path.name}\n"]
+    
+    # 修正: parmchk2 で作った frcmod を必ず読み込むように指示
+    lines += [f"loadamberparams {generated_frcmod}\n"]
+
     for frc in frcmods:
         if frc.exists():
             lines += [f"loadamberparams {frc.name}\n"]
     lines += [f"saveamberparm MOL {prmtop.name} {inpcrd.name}\n", "quit\n"]
     tleap_in.write_text("".join(lines), encoding="utf-8")
 
-    run(f"parmchk2 -s gaff2 -i {mol2_path.name} -f mol2 -o {out_prefix.name}.frcmod",
+    # parmchk2 を実行して frcmod を生成
+    run(f"parmchk2 -s gaff2 -i {mol2_path.name} -f mol2 -o {generated_frcmod}",
         cwd=mol2_path.parent, check=False)
+    
+    # tleap を実行
     run(f"tleap -f {tleap_in.name}", cwd=mol2_path.parent)
     return prmtop, inpcrd
-
+    
 def ensure_ff_calc_in(dst_dir: Path) -> Path:
     dst = dst_dir / "FF_calc.in"
     if dst.exists():
