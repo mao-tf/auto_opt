@@ -332,6 +332,9 @@ def extract_from_step1(step1_csv: str, out_csv: str, auto_dir: str | None = None
         merged_df = pd.merge(df_extracted, existing_df[cols_to_keep + info_cols], 
                              on=['alpha','a','b','z'], how='left')
         
+        if 'dft_status' not in merged_df.columns:
+            merged_df['dft_status'] = float('nan')
+            
         # 新規分は NotYet
         merged_df['dft_status'] = merged_df['dft_status'].fillna('NotYet')
         
