@@ -334,7 +334,7 @@ def extract_from_step1(step1_csv: str, out_csv: str, auto_dir: str | None = None
         
         if 'dft_status' not in merged_df.columns:
             merged_df['dft_status'] = float('nan')
-            
+
         # 新規分は NotYet
         merged_df['dft_status'] = merged_df['dft_status'].fillna('NotYet')
         
@@ -362,7 +362,8 @@ def extract_from_step1(step1_csv: str, out_csv: str, auto_dir: str | None = None
 # =========================================================
 
 def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
-                           submit: bool=True, throttle: bool=True) -> pd.DataFrame:
+                           submit: bool=True, throttle: bool=True, 
+                           target_z_list: Optional[List[float]]=None) -> pd.DataFrame:
     """
     filtered_step1.csv を読み、dft_status == 'NotYet' のものだけ投入。
     """
@@ -371,7 +372,15 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
         print("[submit] dft_status列がありません。すべて NotYet とみなします。")
         df['dft_status'] = 'NotYet'
 
-    target_indices = df[df['dft_status'] == 'NotYet'].index
+    cond = (df['dft_status'] == 'NotYet')
+    
+    # リスト内のいずれかの値と一致するか判定
+    if target_z_list is not None:
+        # 浮動小数点誤差を考慮して、リスト内のどれかと近ければTrue
+        is_target = df['z'].apply(lambda z_val: any(abs(z_val - t) < 1e-5 for t in target_z_list))
+        cond = cond & is_target
+
+    target_indices = df[cond].index
     if len(target_indices) == 0:
         print("[submit] 新規投入対象 (NotYet) はありません。")
         return df
@@ -426,6 +435,7 @@ def main():
     ap.add_argument("--extract-only", action="store_true", help="抽出・マージのみ (投入しない)")
     ap.add_argument("--submit-only",  action="store_true", help="NotYetの投入のみ (抽出しない)")
     ap.add_argument("--no-throttle",  action="store_true")
+    ap.add_argument("--target-z", type=float, nargs='+', default=None, help="特定のzのみ実行 (例: 0.0 1.0)")
     args = ap.parse_args()
 
     MONOMER_DIR = os.path.expanduser(args.monomer_dir)
@@ -440,7 +450,8 @@ def main():
         extract_from_step1(step1_csv, out_csv, auto_dir=auto_dir)
 
     if not args.extract_only:
-        submit_from_candidates(auto_dir, args.monomer, out_csv, submit=True, throttle=not args.no_throttle)
+        submit_from_candidates(auto_dir, args.monomer, out_csv, submit=True, 
+        throttle=not args.no_throttle, target_z_list=args.target_z)
 
 if __name__ == "__main__":
     main()
