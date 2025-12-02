@@ -363,7 +363,8 @@ def extract_from_step1(step1_csv: str, out_csv: str, auto_dir: str | None = None
 
 def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
                            submit: bool=True, throttle: bool=True, 
-                           target_z_list: Optional[List[float]]=None) -> pd.DataFrame:
+                           target_z_list: Optional[List[float]]=None,
+                           E_threshold: float=None) -> pd.DataFrame:
     """
     filtered_step1.csv を読み、dft_status == 'NotYet' のものだけ投入。
     """
@@ -379,6 +380,10 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
         # 浮動小数点誤差を考慮して、リスト内のどれかと近ければTrue
         is_target = df['z'].apply(lambda z_val: any(abs(z_val - t) < 1e-5 for t in target_z_list))
         cond = cond & is_target
+    
+    if E_threshold is not None:
+        is_target_E = (df['E']<=E_threshold)
+        cond = cond & is_target_E
 
     target_indices = df[cond].index
     if len(target_indices) == 0:
@@ -436,6 +441,7 @@ def main():
     ap.add_argument("--submit-only",  action="store_true", help="NotYetの投入のみ (抽出しない)")
     ap.add_argument("--no-throttle",  action="store_true")
     ap.add_argument("--target-z", type=float, nargs='+', default=None, help="特定のzのみ実行 (例: 0.0 1.0)")
+    ap.add_argument("--E-threshold", type=float, default=None, help="Eの閾値を与える")
     args = ap.parse_args()
 
     MONOMER_DIR = os.path.expanduser(args.monomer_dir)
@@ -450,9 +456,12 @@ def main():
         extract_from_step1(step1_csv, out_csv, auto_dir=auto_dir)
 
     if not args.extract_only:
-        submit_from_candidates(auto_dir, args.monomer, out_csv, submit=True, 
-        throttle=not args.no_throttle, target_z_list=args.target_z)
-
+        submit_from_candidates(
+            auto_dir, args.monomer, out_csv, submit=True, 
+            throttle=not args.no_throttle, 
+            target_z_list=args.target_z, 
+            E_threshold=args.E_threshold  
+        )
 if __name__ == "__main__":
     main()
 
