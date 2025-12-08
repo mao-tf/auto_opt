@@ -10,8 +10,9 @@ dft_pipeline.py
     - 1つある場合: a-stack
   * dft_status (NotYet, InProgress, Done) を付与して差分実行を可能に
 
-python -m auto_opt.gaussian.pipeline --auto-dir runs/ANT_test --monomer ANT --extract-only
-python -m auto_opt.gaussian.pipeline --auto-dir runs/ANT_test --monomer ANT --submit-only
+python -m auto_opt.gaussian.pipeline_v2 --auto-dir runs/ANT_test --monomer ANT --extract-only
+python -m auto_opt.gaussian.pipeline_v2 --auto-dir runs/ANT_test --monomer ANT --submit-only
+python -m auto_opt.gaussian.pipeline_v2 --auto-dir runs/BTBT_test --out-csv step1_min_energy_curve.csv --monomer BTBT --submit-only
 """
 
 from __future__ import annotations
