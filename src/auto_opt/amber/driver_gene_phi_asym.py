@@ -190,6 +190,7 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
             params_dict1 = {k: v for k, v in params_dict.items() if (k in fixed_param_keys) or (k in opt_param_keys_1)}
             params_dict2 = {k: v for k, v in params_dict.items() if (k in fixed_param_keys) or (k in opt_param_keys_2)}
             params_dict3 = params_dict
+            params_dict4 = params_dict
             alreadyCalculated = check_calc_status(auto_dir,params_dict)
             if not(alreadyCalculated):
                 df_E= pd.read_csv(os.path.join(auto_dir,'step1.csv'))
@@ -248,7 +249,7 @@ def check_calc_status(auto_dir,params_dict):
         return status=='Done'
     except KeyError:
         return False
-3
+
 def get_params_dict(auto_dir, num_nodes):
     """
     前提:
