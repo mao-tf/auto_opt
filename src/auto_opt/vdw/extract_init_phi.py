@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # extract_init_from_vdw_minima.py
 """
-端点のみ（デフォルト）
-python -m auto_opt.vdw.extract_init --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv
+端点（a-stack, b-stack）のみ（デフォルト）
+python -m auto_opt.vdw.extract_init_phi --vdw-csv ... --out ...
 
 端点＋局所最小（--minima 指定時）
-python -m auto_opt.vdw.extract_init.py --vdw-csv .../vdW_r_contact_PFA.csv --out .../step1_init_params.csv --minima
+python -m auto_opt.vdw.extract_init_phi --vdw-csv ... --out ... --minima
 """
 import argparse
 import numpy as np
@@ -35,6 +35,7 @@ def _local_minima_indices(values: np.ndarray) -> list[int]:
     if n < 3:
         return idx
     v = values
+    # 端点を含まない内部の極小のみ判定
     for i in range(1, n - 1):
         if (v[i] <= v[i - 1]) and (v[i] <= v[i + 1]) and ((v[i] < v[i - 1]) or (v[i] < v[i + 1])):
             idx.append(i)
@@ -58,8 +59,8 @@ def _true_runs(mask: np.ndarray) -> list[list[int]]:
 
 def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = False) -> None:
     """
-    入力: vdw_r_contact_<monomer>.csv （単一CSV, 列: alpha,beta,z,R_clps,TorF）
-    出力: step1_init_params.csv （列: alpha,a,b,z,status）※zで分割しない
+    入力: vdw_r_contact_<monomer>.csv
+    出力: step1_init_params.csv (列: alpha, phi, a, b, z, status, structure_type)
     """
     df = pd.read_csv(vdw_csv)
     need = {"alpha", "phi", "beta", "z", "R_clps", "TorF"}
@@ -70,7 +71,7 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
     df = _compute_geo(df)
     rows = []
 
-    # グループは (z, alpha) ごとに評価（最終出力は1本に集約）
+    # グループは (z, alpha, phi) ごとに評価
     for (z, alpha, phi), g in df.groupby(["z", "alpha", "phi"], sort=False):
         g = g.sort_values("beta").reset_index(drop=True)
         mask = _as_bool_series(g["TorF"]).to_numpy()
@@ -78,41 +79,65 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
             continue
 
         for run in _true_runs(mask):
-            # 端点は常に採用
-            pick = {run[0], 
-                    run[-1]}
+            # 採用する候補点を {index: structure_type} で管理
+            candidates = {}
 
-            # --minima 指定時のみ、局所最小も採用
+            # 1. 端点 (Endpoints) -> Stack構造として分類
+            # 区間の開始点 (beta最小側 -> bが最小 -> b-stack)
+            candidates[run[0]] = "b-stack"
+            
+            # 区間の終了点 (beta最大側 -> aが最小 -> a-stack)
+            # ※ run長が1の場合上書きされますが、物理的には両方の性質を持つ極限状態です
+            candidates[run[-1]] = "a-stack"
+
+            # 2. 局所最小 (Local Minima) - オプション
             if minima:
                 vals = g.loc[run, "value"].to_numpy()
                 mins_local = _local_minima_indices(vals)
                 for k in mins_local:
-                    pick.add(run[k])
-
-            for i in sorted(pick):
+                    idx = run[k]
+                    candidates[idx] = "ch"
+            
+            # 抽出処理
+            for i in sorted(candidates.keys()):
+                st_type = candidates[i]
+                
                 a = float(g.loc[i, "a"])
                 b = float(g.loc[i, "b"])
                 a_r = np.round(a, round_ab)
                 b_r = np.round(b, round_ab)
-                rows.append([float(alpha), float(phi), a_r, b_r, float(z), "NotYet"])
+                
+                rows.append([
+                    float(alpha), 
+                    float(phi), 
+                    a_r, 
+                    b_r, 
+                    float(z), 
+                    "NotYet", 
+                    st_type  # a-stack, b-stack, local_min
+                ])
 
     if not rows:
         raise ValueError("抽出結果が空です。TorF条件や入力CSVを確認してください。")
 
-    out_df = pd.DataFrame(rows, columns=["alpha", "phi", "a", "b", "z", "status"])
+    out_cols = ["alpha", "phi", "a", "b", "z", "status", "structure_type"]
+    out_df = pd.DataFrame(rows, columns=out_cols)
+    
+    # 重複排除
     out_df = out_df.drop_duplicates().sort_values(["z", "alpha", "phi", "a", "b"]).reset_index(drop=True)
+    
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(out_csv, index=False)
     print(f"Wrote {out_csv} (n={len(out_df)})")
 
 def main():
     ap = argparse.ArgumentParser(
-        description="vdW単一CSVから True区間の端点＋（オプションで局所極小）を抽出し、step1_init_params.csv を作成"
+        description="vdW単一CSVからTrue区間の端点(a-stack, b-stack)＋局所極小を抽出"
     )
-    ap.add_argument("--vdw-csv", required=True, help="vdW_r_contact_<monomer>.csv（z列あり）")
+    ap.add_argument("--vdw-csv", required=True, help="vdW_r_contact_<monomer>.csv")
     ap.add_argument("--out", required=True, help="出力ファイル（step1_init_params.csv）")
-    ap.add_argument("--round-ab", type=int, default=1, help="a,b の小数丸め桁（既定 1 → 0.1刻み）")
-    ap.add_argument("--minima", action="store_true", help="True区間の局所最小（valueの離散極小）も抽出（端点＋極小）")
+    ap.add_argument("--round-ab", type=int, default=1, help="a,b の小数丸め桁（既定 1）")
+    ap.add_argument("--minima", action="store_true", help="局所最小（local_min）も抽出")
     args = ap.parse_args()
     extract_init(args.vdw_csv, args.out, round_ab=args.round_ab, minima=args.minima)
 
