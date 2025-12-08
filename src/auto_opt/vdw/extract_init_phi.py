@@ -79,7 +79,7 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
 
         for run in _true_runs(mask):
             # 端点は常に採用
-            pick = {#run[0], 
+            pick = {run[0], 
                     run[-1]}
 
             # --minima 指定時のみ、局所最小も採用
