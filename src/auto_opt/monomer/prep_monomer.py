@@ -200,7 +200,7 @@ def ensure_ff_calc_in(dst_dir: Path) -> Path:
         dst.write_text("\n".join([
             "Single-point",
             " &cntrl",
-            "  imin=1, maxcyc=1, ntb=0, igb=0, cut=999.0, ntpr=1,",
+            "  imin=1, maxcyc=0, ntb=0, igb=0, cut=999.0, ntpr=1,",
             " /",
             ""
         ]), encoding="utf-8")
