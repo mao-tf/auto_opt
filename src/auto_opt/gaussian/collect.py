@@ -73,7 +73,7 @@ def collect_results(auto_dir: str, monomer: str, cand_csv: str, out_csv: str) ->
 
     rows = []
     for r in df.itertuples(index=False):
-        alpha, a, b, z = float(r.alpha), float(r.phi), float(r.a), float(r.b), float(r.z)
+        alpha, phi, a, b, z = float(r.alpha), float(r.phi), float(r.a), float(r.b), float(r.z)
         logp = _log_path(auto_dir, monomer, alpha, phi, a, b, z)
 
         rec = {'alpha': alpha, 'phi': phi, 'a': a, 'b': b, 'z': z,
