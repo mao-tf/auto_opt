@@ -21,12 +21,12 @@ from auto_opt.utils import dft_get_E  # ログから [E1,E2,E3] を返す関数�
 
 # ----------------- ヘルパ -----------------
 
-def _round_for_name(alpha: float, a: float, b: float, z: float):
-    return int(round(alpha)), round(float(a), 1), round(float(b), 1), round(float(z), 1)
+def _round_for_name(alpha: float, phi: float, a: float, b: float, z: float):
+    return int(round(alpha)), int(round(phi)), round(float(a), 1), round(float(b), 1), round(float(z), 1)
 
-def _log_path(auto_dir: str, monomer: str, alpha: float, a: float, b: float, z: float) -> Path:
-    ai, ar, br, zr = _round_for_name(alpha, a, b, z)
-    base = f"{monomer}_alpha={ai}_a={ar}_b={br}_z={zr}"
+def _log_path(auto_dir: str, monomer: str, alpha: float, phi: float, a: float, b: float, z: float) -> Path:
+    ai, pi, ar, br, zr = _round_for_name(alpha, phi, a, b, z)
+    base = f"{monomer}_alpha={ai}_phi={pi}_a={ar}_b={br}_z={zr}"
     return Path(auto_dir) / "gaussian" / f"{base}.log"
 
 def _combine_total(E1: float, E2: float, E3: float) -> float:
@@ -39,7 +39,7 @@ def _assign_structure_types(df: pd.DataFrame) -> pd.DataFrame:
     if out.empty:
         return out
 
-    for (alpha, z), g_all in out.groupby(['alpha', 'z'], sort=False):
+    for (alpha, phi, z), g_all in out.groupby(['alpha', 'phi', 'z'], sort=False):
         g_all = g_all.sort_values('a')
         order = list(g_all.index)
 
@@ -66,17 +66,17 @@ def collect_results(auto_dir: str, monomer: str, cand_csv: str, out_csv: str) ->
     """
     df = pd.read_csv(cand_csv)
     
-    need = {'alpha','a','b','z'}
+    need = {'alpha','phi','a','b','z'}
     missing = need - set(df.columns)
     if missing:
         raise ValueError(f"{cand_csv} に必須列が不足しています: {sorted(missing)}")
 
     rows = []
     for r in df.itertuples(index=False):
-        alpha, a, b, z = float(r.alpha), float(r.a), float(r.b), float(r.z)
-        logp = _log_path(auto_dir, monomer, alpha, a, b, z)
+        alpha, a, b, z = float(r.alpha), float(r.phi), float(r.a), float(r.b), float(r.z)
+        logp = _log_path(auto_dir, monomer, alpha, phi, a, b, z)
 
-        rec = {'alpha': alpha, 'a': a, 'b': b, 'z': z,
+        rec = {'alpha': alpha, 'phi': phi, 'a': a, 'b': b, 'z': z,
                'E': np.nan, 'E1': np.nan, 'E2': np.nan, 'E3': np.nan, 'status': ''}
 
         if not logp.exists():
@@ -109,7 +109,7 @@ def collect_results(auto_dir: str, monomer: str, cand_csv: str, out_csv: str) ->
 
         rows.append(rec)
 
-    out_df = pd.DataFrame(rows, columns=['alpha','a','b','z','E','E1','E2','E3','status'])
+    out_df = pd.DataFrame(rows, columns=['alpha','phi', 'a','b','z','E','E1','E2','E3','status'])
 
     # ★ ここで構造タイプを付ける
     out_df = _assign_structure_types(out_df)

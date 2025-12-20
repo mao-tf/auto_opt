@@ -7,7 +7,7 @@ Step 1 (Intralayer Search) のジョブ投入スクリプト
 alpha (分子の傾き) ごとにサブディレクトリを作成して計算ジョブを分散投入します。
 
 Usage:
-    python -m auto_opt.amber.job --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 10
+    python -m auto_opt.amber.job_asym --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 10
 """
 
 import os

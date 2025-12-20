@@ -11,13 +11,13 @@ pipeline_integrated.py
 
 Usage:
   # 抽出のみ (step1.csv -> filtered_step1.csv)
-  python -m auto_opt.gaussian.pipeline_integrated --auto-dir runs/ANT_test --monomer ANT --extract-only
+  python -m auto_opt.gaussian.pipeline_v3 --auto-dir runs/ANT_test --monomer ANT --extract-only
 
   # 投入のみ (filtered_step1.csv の NotYet を投入)
-  python -m auto_opt.gaussian.pipeline_integrated --auto-dir runs/ANT_test --monomer ANT --submit-only
+  python -m auto_opt.gaussian.pipeline_v3 --auto-dir runs/ANT_test --monomer ANT --submit-only
 
   # 閾値を設けて投入
-  python -m auto_opt.gaussian.pipeline_integrated --auto-dir runs/ANT_test --monomer ANT --submit-only --E-threshold -15.0
+  python -m auto_opt.gaussian.pipeline_v3 --auto-dir runs/ANT_test --monomer ANT --submit-only --E-threshold -15.0
 """
 
 from __future__ import annotations
