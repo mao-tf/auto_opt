@@ -11,13 +11,13 @@ pipeline_integrated.py
 
 Usage:
   # 抽出のみ (step1.csv -> filtered_step1.csv)
-  python -m auto_opt.gaussian.pipeline_v3 --auto-dir runs/ANT_test --monomer ANT --extract-only
+  python -m auto_opt.gaussian.pipeline_v3_asym --auto-dir runs/ANT_test --monomer ANT --extract-only
 
   # 投入のみ (filtered_step1.csv の NotYet を投入)
-  python -m auto_opt.gaussian.pipeline_v3 --auto-dir runs/ANT_test --monomer ANT --submit-only
+  python -m auto_opt.gaussian.pipeline_v3_asym --auto-dir runs/ANT_test --monomer ANT --submit-only
 
   # 閾値を設けて投入
-  python -m auto_opt.gaussian.pipeline_v3 --auto-dir runs/ANT_test --monomer ANT --submit-only --E-threshold -15.0
+  python -m auto_opt.gaussian.pipeline_v3_asym --auto-dir runs/ANT_test --monomer ANT --submit-only --E-threshold -15.0
 """
 
 from __future__ import annotations
@@ -334,7 +334,7 @@ def extract_from_step1(step1_csv: str, out_csv: str, auto_dir: str | None = None
         print("[extract] Done行が見つかりません。スキップします。")
         return pd.DataFrame()
 
-    energy_cols = [c for c in ['E','E1','E2','E3'] if c in df.columns]
+    energy_cols = [c for c in ['E','E1','E2','E3','E4'] if c in df.columns]
     for c in ['a','b','z','alpha','phi'] + energy_cols:
         df[c] = pd.to_numeric(df[c], errors='coerce')
     df = df.dropna(subset=['a','b','z','E'])
