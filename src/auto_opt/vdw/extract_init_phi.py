@@ -146,7 +146,7 @@ def main():
         description="vdW単一CSVから特定の構造タイプ(a-stack, b-stack, local_min)を抽出"
     )
     ap.add_argument("--vdw-csv", required=True, help="vdW_r_contact_<monomer>.csv")
-    ap.add_argument("--out", required=True, help="出力ファイル")
+    ap.add_argument("--out", required=True, help="出力ファイル（step1_init_params.csv）")
     ap.add_argument("--round-ab", type=int, default=1, help="a,b の小数丸め桁")
     ap.add_argument("--minima", action="store_true", help="局所最小（local_min）も候補に含める")
     

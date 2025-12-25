@@ -36,10 +36,10 @@ def init_process(args):
     """
 
     # ベースディレクトリ（絶対パスにそろえる）
-    auto_dir_root = Path(args.auto_dir).resolve()
+    auto_dir_root = Path(args.auto_dir).resolve() # [MY_MEMO] resolve() はpwdとauto_dirを繋いで絶対パスにするやつ！計算ノードが迷子にならないようにするため。
     params_csv = auto_dir_root / 'step1_init_params.csv'
 
-    if not params_csv.exists():
+    if not params_csv.exists(): # [my_memo] step1_init_params.csvがなかったらクラッシュしてメッセージを出す
         raise FileNotFoundError(f"初期パラメータファイルが見つかりません: {params_csv}")
 
     # まとめてある init を読む
@@ -50,9 +50,9 @@ def init_process(args):
     if 'alpha' not in df_init.columns:
          raise ValueError(f"{params_csv} に 'alpha' カラムが含まれていません。")
          
-    alpha_list = sorted(df_init['alpha'].unique())
+    alpha_list = sorted(df_init['alpha'].unique()) #[my_memo] .uniqueは[30,30,40,40,45]を[30,40,45]にするもの
 
-    print(f"Detected alpha values: {alpha_list}")
+    print(f"Detected alpha values: {alpha_list}") #[my_memo] alphaのリストを出力
 
     for i, alpha in enumerate(alpha_list):
         # 交互にキュー（マシンタイプ）を振り分ける
@@ -68,7 +68,7 @@ def init_process(args):
         # ディレクトリ名は alpha の値そのもの
         dir_name = f'{alpha}'
         subdir = auto_dir_root / dir_name
-        subdir.mkdir(parents=True, exist_ok=True)
+        subdir.mkdir(parents=True, exist_ok=True) #[my_memo] 親ディレクトリもまとめて作ってくれる！ もともと存在していてもOK! 途中でクラッシュして再計算になった時に再度作らなくていいように
 
         # この alpha の行だけ抜き出して保存
         df_alpha = df_init[df_init['alpha'] == alpha]
@@ -80,7 +80,7 @@ def init_process(args):
         df_alpha.to_csv(subdir / 'step1_init_params.csv', index=False)
 
         # driver_gene に渡す auto-dir は「その alpha のサブディレクトリ」
-        auto_dir_for_driver = str(subdir)
+        auto_dir_for_driver = str(subdir) #[mymemo] Path型をstr型にする。なぜなら外部のLinuxコマンド(qsubや driver_gene)に引数を渡す時は、Path型ではなく文字列型(str)じゃないと受け取ってくれないから。
 
         # 実際に投げるコマンドを組み立てる
         cmd = (
@@ -95,9 +95,9 @@ def init_process(args):
         job_lines = [
             "#!/bin/sh\n",
             "#$ -S /bin/sh\n",
-            "#$ -cwd\n",
+            "#$ -cwd\n", #[mymemo]実行環境の指定。計算ノードの環境設定（Pythonのバージョンや必要なライブラリ）を統一し、どこで動かしても同じ結果が出るようにする。
             "#$ -V\n",
-            f"#$ -q {queue}\n",
+            f"#$ -q {queue}\n", #[mymemo]計算資源の確保。1000種類のリスクシナリオを、1000コア使って同時に計算させる。
             f"#$ -pe OpenMP {nproc}\n",
             "\n",
             "hostname\n",
@@ -113,7 +113,7 @@ def init_process(args):
 
         # ジョブ投入
         print(f"Submitting job for alpha={alpha} into {queue}...")
-        subprocess.run(['qsub', str(job_path)])
+        subprocess.run(['qsub', str(job_path)]) #[mymemo]計算の実行。計算が集中したとき、システムが「このジョブは夜中にやろう」「このジョブは空いている別のサーバーでやろう」と自動で順番待ちや振り分けをしてくれる。
 
 
 def update_value_in_df(df, index, key, value):
@@ -127,6 +127,7 @@ def update_value_in_df(df, index, key, value):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Step 1 Job Dispatcher')
+    ## argparseを使うと外から変数を変えられる
 
     parser.add_argument(
         '--isTest', action='store_true',
