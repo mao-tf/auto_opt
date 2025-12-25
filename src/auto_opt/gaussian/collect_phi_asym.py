@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-python -m auto_opt.gaussian.collect_phi --auto-dir runs/ANT_test --monomer ANT 
+python -m auto_opt.gaussian.collect_phi_asym --auto-dir runs/ANT_test --monomer ANT 
 
 - filtered_step1.csv（列: alpha,phi,a,b,z …）を読み、
   auto-dir/gaussian/内の .log を utils.dft_get_E() で解析。
@@ -85,7 +85,7 @@ def collect_results(auto_dir: str, monomer: str, cand_csv: str, out_csv: str) ->
         logp = _log_path(auto_dir, monomer, alpha, phi, a, b, z)
 
         rec = {'alpha': alpha, 'phi': phi, 'a': a, 'b': b, 'z': z,
-               'E': np.nan, 'E1': np.nan, 'E2': np.nan, 'E3': np.nan, 'E4': np.nan 'status': ''}
+               'E': np.nan, 'E1': np.nan, 'E2': np.nan, 'E3': np.nan, 'E4': np.nan, 'status': ''}
 
         if not logp.exists():
             rec['status'] = 'Missing'
