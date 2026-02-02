@@ -92,28 +92,34 @@ def init_process(args):
         if args.isTest:
             cmd += ' --isTest'
 
+        job_name = f"{args.monomer_name}_{alpha}"
+        out_path = subdir / f"job.sh.o{alpha}" # #[MY_MEMO] 出力ファイルの保存先をサブディレクトリ内に固定
+        err_path = subdir / f"job.sh.e{alpha}"
+
         job_lines = [
             "#!/bin/sh\n",
+            f"#$ -N {job_name}\n",
             "#$ -S /bin/sh\n",
             "#$ -cwd\n",
             "#$ -V\n",
             f"#$ -q {queue}\n",
             f"#$ -pe OpenMP {nproc}\n",
+            f"#$ -o {out_path}\n",  # #[MY_MEMO] 標準出力を特定のパスへ飛ばす
+            f"#$ -e {err_path}\n",  # #[MY_MEMO] 標準エラーを特定のパスへ飛ばす
             "\n",
             "hostname\n",
             "\n",
             cmd + "\n",
             "\n",
-            "#sleep 5\n",
         ]
 
         job_path = subdir / 'job.sh'
         with open(job_path, 'w') as f:
             f.writelines(job_lines)
 
-        # ジョブ投入
         print(f"Submitting job for alpha={alpha} into {queue}...")
-        subprocess.run(['qsub', str(job_path)])
+        # subprocess.run に cwd 引数を渡すことで、そのディレクトリから qsub したことになります
+        subprocess.run(['qsub', 'job.sh'], cwd=str(subdir))
 
 
 def update_value_in_df(df, index, key, value):
