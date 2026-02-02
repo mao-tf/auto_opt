@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-python -m auto_opt.amber.job_phi_asym --auto-dir runs/ANT_test4 --monomer-name ANT --num-nodes 10 
+python -m auto_opt.amber.job_phi_asym_anti --auto-dir runs/ANT_test4 --monomer-name ANT --num-nodes 10 
 """
 import os
 os.environ['HOME'] = '/data/group1/z40145w'
