@@ -1,6 +1,6 @@
 ##tetracene層内計算
 """
-python -m auto_opt.amber.driver_gene_phi_asym --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 2 --isTest
+python -m auto_opt.amber.driver_gene_phi_asym_anti --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 2 --isTest
 """
 import pandas as pd
 import time

@@ -84,7 +84,7 @@ def init_process(args):
 
         # 実際に投げるコマンドを組み立てる
         cmd = (
-            'python -m auto_opt.amber.driver_gene_asym '
+            'python -m auto_opt.amber.driver_gene_phi_asym_anti '
             f'--auto-dir {auto_dir_for_driver} '
             f'--monomer-name {args.monomer_name} '
             f'--num-nodes {args.num_nodes}'
