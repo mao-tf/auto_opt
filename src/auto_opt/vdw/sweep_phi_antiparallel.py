@@ -79,7 +79,7 @@ def parallel_pair1(base_axyz, Rx, Rz, z):
         # --- Neighbor (反転) ---
         # 1. 初期座標をX軸180度回転 (y->-y, z->-z)
         # これが物理的に正しいp1方向の反転
-        v0_flip = np.array([x, -y, -zz])
+        v0_flip = np.array([x, y, zz])
         
         # 2. 回転適用
         rot2 = np.matmul(v0_flip, Rx)

@@ -265,7 +265,7 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     A3 = params_dict.get('alpha', 0.0)
 
     mon_i  = get_monomer_xyzR(monomer_name, 0,   0,   0,   A2,  A3)
-    mon_p1 = get_monomer_xyzR(monomer_name, a,   0,   0,   180+A2,  A3)
+    mon_p1 = get_monomer_xyzR(monomer_name, a,   0,   0,   A2,  A3)
     mon_p2 = get_monomer_xyzR(monomer_name, 0,   b, 2*z,   A2,  A3)
     mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2,  z,  180+A2, -A3)
     mon_t2 = get_monomer_xyzR(monomer_name,-a/2, b/2,  z,  180+A2, -A3)
@@ -320,7 +320,7 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     A3 = params_dict.get('alpha', 0.0)
 
     mon_i  = get_monomer_xyzR(monomer_name, 0,   0,   0,   A2,  A3)
-    mon_p1 = get_monomer_xyzR(monomer_name, a,   0,   0,   180+A2,  A3)
+    mon_p1 = get_monomer_xyzR(monomer_name, a,   0,   0,   A2,  A3)
     mon_p2 = get_monomer_xyzR(monomer_name, 0,   b, 2*z,   A2,  A3)
     mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2,  z,  180+A2, -A3)
     mon_t2 = get_monomer_xyzR(monomer_name, -a/2, b/2, z,  180+A2, -A3)
