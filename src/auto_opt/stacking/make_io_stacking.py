@@ -6,11 +6,11 @@ import pandas as pd
 import subprocess
 import shutil
 from pathlib import Path
+from typing import List
 
 # 現在の環境に合わせて適宜インポート
 from auto_opt.utils import Rod, R2atom
 # utilsにget_xyzR_linesなどがあればインポートします（環境に合わせて調整してください）
-from auto_opt.amber.make_io_gene_phi_asym_anti import get_xyzR_lines
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "data"
@@ -120,3 +120,65 @@ def exec_gjf_stacking(auto_dir: str, monomer_name: str, params_dict: dict, in_fi
         subprocess.run(full_cmd, shell=True)
     
     return file_name + '.out'
+
+def get_xyzR_lines(xyzr_array: np.ndarray, monomer_name: str) -> List[str]:
+    """
+    N分子クラスター用 .mol2 全文の行を返す（MOLECULE/ATOM/BOND/SUBSTRUCTURE）。
+    ATOM の atom_type/charge は monomer mol2 から抽出し、N分子分に複製。
+    BOND は monomer の BOND を分子数(N)倍に複製。
+    """
+    # 既存のヘルパー関数（_load_mol2_params, R2atom）はそのまま使います
+    types_charges, bonds = _load_mol2_params(monomer_name)
+    n_mono = len(types_charges)
+    n_total = xyzr_array.shape[0]
+    
+    # 割り切れるか（原子数に欠損がないか）をチェックし、分子数を自動算出
+    assert n_total % n_mono == 0, f"全体の原子数({n_total})がモノマー原子数({n_mono})で割り切れません"
+    num_molecules = n_total // n_mono
+
+    lines: List[str] = []
+
+    # 1. MOLECULE ヘッダ (2分子固定の _format_molecule_header を使わず、動的に生成)
+    natoms = n_total
+    nbonds = num_molecules * len(bonds)
+    lines.append("@<TRIPOS>MOLECULE\n")
+    lines.append(f"{monomer_name}_cluster\n")
+    # 書式: num_atoms num_bonds num_subst 0 0
+    lines.append(f"{natoms:5d} {nbonds:5d} {num_molecules:5d} 0 0\n")
+    lines.append("SMALL\n")
+    lines.append("GASTEIGER\n\n")
+
+    # 2. ATOM セクション
+    lines.append("@<TRIPOS>ATOM\n")
+    for i in range(natoms):
+        x, y, z, r = xyzr_array[i]
+        atype, charge = types_charges[i % n_mono]
+        
+        # 何番目の分子(フラグメント)かを計算 (1始まり)
+        frag = (i // n_mono) + 1
+        atom_name = R2atom(r)
+        
+        # id name x y z type resid resname charge
+        lines.append(
+            f"{i+1:6d} {atom_name:<2s} {x: .6f} {y: .6f} {z: .6f} "
+            f"{atype} {frag:3d} RES{frag:<3d} {charge: .6f}\n"
+        )
+
+    # 3. BOND セクション
+    lines.append("@<TRIPOS>BOND\n")
+    bid = 1
+    for mol_idx in range(num_molecules):
+        off = mol_idx * n_mono  # 2つ目の分子なら n_mono、3つ目なら 2*n_mono のオフセット
+        for a, b, btype in bonds:
+            lines.append(f"{bid:6d}{a+off:6d}{b+off:6d} {btype}\n")
+            bid += 1
+
+    # 4. SUBSTRUCTURE セクション (分子数分だけ自動生成)
+    lines.append("@<TRIPOS>SUBSTRUCTURE\n")
+    for mol_idx in range(num_molecules):
+        frag = mol_idx + 1
+        root_atom = mol_idx * n_mono + 1  # 各フラグメントの最初の原子をルートに指定
+        # subst_id subst_name root_atom subst_type dict_type chain comment
+        lines.append(f"{frag:3d} RES{frag:<3d} {root_atom:5d} GROUP 0 **** ****\n")
+
+    return lines
