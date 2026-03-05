@@ -11,6 +11,7 @@ from typing import List
 # 現在の環境に合わせて適宜インポート
 from auto_opt.utils import Rod, R2atom
 # utilsにget_xyzR_linesなどがあればインポートします（環境に合わせて調整してください）
+from auto_opt.amber.make_io_gene_phi_asym_anti import _load_mol2_params
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "data"
