@@ -11,7 +11,7 @@ from typing import List
 # 現在の環境に合わせて適宜インポート
 from auto_opt.utils import Rod, R2atom
 # utilsにget_xyzR_linesなどがあればインポートします（環境に合わせて調整してください）
-from auto_opt.amber.make_io_gene_phi_asym_anti import _load_mol2_params
+from auto_opt.amber.make_io_gene_phi_asym_anti import _load_mol2_params, _guess_mol2_path
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "data"
@@ -84,27 +84,28 @@ def exec_gjf_stacking(auto_dir: str, monomer_name: str, params_dict: dict, in_fi
     
     cx_str = f"{params_dict['cx']:.2f}".replace('.', 'p').replace('-', 'm')
     cy_str = f"{params_dict['cy']:.2f}".replace('.', 'p').replace('-', 'm')
-    
-    # 連続実行でファイル名が被らないようにczもファイル名に含める
     cz_str = f"{params_dict['cz']:.2f}".replace('.', 'p')
     file_name = f"{monomer_name}_stack_cx{cx_str}_cy{cy_str}_cz{cz_str}"
     
     mol2_path = os.path.join(out_dir, file_name + '.mol2')
     
-    # --- 中略 (座標生成とtleapの部分はそのまま) ---
+    # --- 10分子座標の作成 ---
     stacking_coords = make_stacking_xyz(monomer_name, params_dict)
     mol2_lines = get_xyzR_lines(stacking_coords, monomer_name)
     with open(mol2_path, 'w') as f:
         f.writelines(mol2_lines)
 
+    # ★修正：モノマーmol2のパスを自動推論し、frcmodの名前を定義
+    monomer_mol2 = str(_guess_mol2_path(monomer_name))
+    frcmod_name = f"{monomer_name}_gaff2.frcmod"
+    
     tleap_in_path = os.path.join(out_dir, file_name + '_tleap.in')
-    mono_gaff_mol2 = MONO / f"{monomer_name}.mol2" 
-    mono_frcmod = MONO / f"{monomer_name}.frcmod"
+    
     tleap_lines = [
         "source leaprc.gaff2\n",
-        f"loadamberparams {mono_frcmod}\n",
-        f"MOL = loadmol2 {mono_gaff_mol2}\n",
-        f"SYS = loadmol2 {mol2_path}\n",
+        f"loadamberparams {frcmod_name}\n", 
+        f"MOL = loadmol2 {monomer_mol2}\n",
+        f"SYS = loadmol2 {file_name}.mol2\n",
         f"saveamberparm SYS {file_name}.prmtop {file_name}.inpcrd\n",
         "quit\n"
     ]
@@ -112,19 +113,23 @@ def exec_gjf_stacking(auto_dir: str, monomer_name: str, params_dict: dict, in_fi
         f.writelines(tleap_lines)
         
     tleap_cmd = f"tleap -f {file_name}_tleap.in > {file_name}_tleap.out"
-
-    # ★ 変更点：in_file を変数化して、1点計算用の設定ファイルを使えるようにする
     sander_cmd = f"sander -O -i {in_file} -o {file_name}.out -p {file_name}.prmtop -c {file_name}.inpcrd -r {file_name}.rst7"
-    
+   
+    parmchk_cmd = (
+        f'if [ ! -f "{frcmod_name}" ]; then '
+        f'parmchk2 -s gaff2 -i "{monomer_mol2}" -f mol2 -o "{frcmod_name}"; '
+        f'fi'
+    )
+
     full_cmd = (
         f"cd {out_dir} && "
         "source ~/anaconda3/etc/profile.d/conda.sh && "
         "conda activate amber && "
+        f"{parmchk_cmd} && "  # ← ここで frcmod を自動生成！
         f"{tleap_cmd} && {sander_cmd}"
     )
     
     if not isTest:
-        # executable='/bin/bash' を足すことで source コマンドが確実に使えるようにします
         subprocess.run(full_cmd, shell=True, executable='/bin/bash')
     
     return file_name + '.out'
