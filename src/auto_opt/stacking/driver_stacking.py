@@ -69,7 +69,7 @@ def get_amber_energy_for_cz(cz_val, cx_val, cy_val, base_params, auto_dir, monom
     out_path = os.path.join(auto_dir, 'amber', out_file)
     try:
         energy = amber_get_E(out_path)
-        return energy
+        return float(energy_list[0])
     except Exception:
         return 9999.0
 
