@@ -116,9 +116,16 @@ def exec_gjf_stacking(auto_dir: str, monomer_name: str, params_dict: dict, in_fi
     # ★ 変更点：in_file を変数化して、1点計算用の設定ファイルを使えるようにする
     sander_cmd = f"sander -O -i {in_file} -o {file_name}.out -p {file_name}.prmtop -c {file_name}.inpcrd -r {file_name}.rst7"
     
-    full_cmd = f"cd {out_dir} && {tleap_cmd} && {sander_cmd}"
+    full_cmd = (
+        f"cd {out_dir} && "
+        "source ~/anaconda3/etc/profile.d/conda.sh && "
+        "conda activate amber && "
+        f"{tleap_cmd} && {sander_cmd}"
+    )
+    
     if not isTest:
-        subprocess.run(full_cmd, shell=True)
+        # executable='/bin/bash' を足すことで source コマンドが確実に使えるようにします
+        subprocess.run(full_cmd, shell=True, executable='/bin/bash')
     
     return file_name + '.out'
 
