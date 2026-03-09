@@ -6,8 +6,9 @@
 指定したCSVを読み込み、phiごとにディレクトリを分割して計算ジョブを分散投入します。
 
 実行例:
-python -m auto_opt.stacking.job --auto-dir runs/PFA_stacking --monomer-name PFA --input-csv runs/PFA_test/step1_results.csv
+python -m auto_opt.stacking.job --auto-dir runs/PFA_stacking/phi_20.0 --monomer-name PFA --input-csv runs/PFA_stacking/input_for_stacking.csv --mode 2D --step-x 0.25 --step-y 0.25
 """
+
 import os
 os.environ['HOME'] = '/data/group1/z40145w'
 
@@ -127,6 +128,18 @@ if __name__ == '__main__':
         '--cz-tol', type=float, default=0.1,
         help='SciPyでの cz 最適化の収束条件 (デフォルト: 0.1 Å)',
     )
+    parser.add_argument(
+        '--mode', type=str, choices=['1D', '2D'], default='1D', 
+        help="スキャンモードの選択 (1D または 2D)"
+        )
+    parser.add_argument(
+        '--step-x', type=float, default=0.1, 
+        help="cx のスキャン間隔 (デフォルト: 0.1)"
+        )
+    parser.add_argument(
+        '--step-y', type=float, default=0.1, 
+        help="cy のスキャン間隔 (デフォルト: 0.1)"
+        )
     
     args = parser.parse_args()
 
