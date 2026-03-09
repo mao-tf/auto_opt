@@ -98,7 +98,7 @@ def main_process(args):
         
         print(f"\n--- 構造 {index+1}: a={a_opt}, b={b_opt}, alpha={alpha_opt}, z={z_opt}, phi={phi_opt} ---")
         
-        for theta2_val in [alpha_opt, -alpha_opt]:
+        for theta2_val in [alpha_opt]:#, -alpha_opt]:
             base_params = {
                 'a': a_opt, 'b': b_opt, 'alpha': alpha_opt, 
                 'z': z_opt, 'phi': phi_opt,
@@ -133,7 +133,7 @@ def main_process(args):
                     params_for_vdw.update({'cx': cx_val, 'cy': cy_val, 'cz': 0.0})
                     
                     cz_vdw = estimate_vdw_cz(args.monomer_name, params_for_vdw)
-                    search_bounds = (cz_vdw - 2.0, cz_vdw + 2.0)
+                    search_bounds = (cz_vdw - 1.0, cz_vdw + 1.0)
                     
                     res = minimize_scalar(
                         get_amber_energy_for_cz, 
