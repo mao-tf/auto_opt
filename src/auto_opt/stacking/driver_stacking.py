@@ -26,10 +26,7 @@ def estimate_vdw_cz(monomer_name, params_dict):
     theta1 = params_dict['theta1']; theta2 = params_dict['theta2']
     cx = params_dict['cx']; cy = params_dict['cy']
     
-    # 上層分子 (cz=0 として計算)
     top_mol = get_monomer_xyzR(monomer_name, cx, cy, 0.0, theta2)
-    
-    # 下層分子群
     b0 = get_monomer_xyzR(monomer_name, 0, 0, 0, theta1)
     ba1 = get_monomer_xyzR(monomer_name, a, 0, 0, theta1)
     ba2 = get_monomer_xyzR(monomer_name, -a, 0, 0, theta1)
@@ -80,18 +77,16 @@ def main_process(args):
     csv_path = Path(args.input_csv).resolve()
     df_input = pd.read_csv(csv_path)
     
-    # 出力するCSVのパスをあらかじめ決めておく
     out_csv_path = os.path.join(auto_dir, 'cy_scan_results.csv')
     
-    # すでに計算済みの条件を記録するリスト（再開用）
     calculated_keys = set()
     if os.path.exists(out_csv_path) and not args.isTest:
         df_existing = pd.read_csv(out_csv_path)
         print(f"既存の計算結果 '{out_csv_path}' を読み込みました。続きから再開します。")
         for _, r in df_existing.iterrows():
-            # 過去の1D専用CSVで 'cx' 列がない場合の安全対策
             cx_val_hist = round(r['cx'], 2) if 'cx' in r else 0.0
-            key = (round(r['alpha'], 2), round(r['phi'], 2), round(r['theta2'], 2), cx_val_hist, round(r['cy'], 2))
+            # ★修正: a, b, z をキーに追加！
+            key = (round(r['a'], 2), round(r['b'], 2), round(r['alpha'], 2), round(r['z'], 2), round(r['phi'], 2), round(r['theta2'], 2), cx_val_hist, round(r['cy'], 2))
             calculated_keys.add(key)
 
     print(f"入力CSVから {len(df_input)} 件の構造を読み込みました。")
@@ -101,9 +96,9 @@ def main_process(args):
         a_opt = row['a']; b_opt = row['b']; z_opt = row['z']
         alpha_opt = row['alpha']; phi_opt = row['phi']
         
-        print(f"\n--- 構造 {index+1}: alpha={alpha_opt}, phi={phi_opt}, z={z_opt} ---")
+        print(f"\n--- 構造 {index+1}: a={a_opt}, b={b_opt}, alpha={alpha_opt}, z={z_opt}, phi={phi_opt} ---")
         
-        for theta2_val in [alpha_opt]: #-alpha_opt]:
+        for theta2_val in [alpha_opt, -alpha_opt]:
             base_params = {
                 'a': a_opt, 'b': b_opt, 'alpha': alpha_opt, 
                 'z': z_opt, 'phi': phi_opt,
@@ -111,29 +106,25 @@ def main_process(args):
             }
             print(f"  >> theta2 = {theta2_val} のスキャンを開始")
 
-            # コマンドライン引数から step_size を取得
             step_size_x = args.step_x
             step_size_y = args.step_y
 
-            # モードに応じた cx_list の生成
             if args.mode == '1D':
-                cx_list = [0.0]           # 1Dなら 0.0 のみ（1回ループ）
+                cx_list = [0.0]
             elif args.mode == '2D':
                 num_points_x = int(a_opt / step_size_x) + 1
                 cx_list = np.linspace(-a_opt/2, a_opt/2, num_points_x)
 
-            # cy_list の生成
             num_points_y = int(b_opt / step_size_y) + 1
             cy_list = np.linspace(-b_opt/2, b_opt/2, num_points_y)
 
-            # cx のループ（1Dの時は1回、2Dの時は複数回）
             for cx in cx_list:
                 cx_val = np.round(cx, 2)
                 for cy in cy_list:
                     cy_val = np.round(cy, 2)
                     
-                    # スキップ判定（cxも考慮）
-                    current_key = (round(alpha_opt, 2), round(phi_opt, 2), round(theta2_val, 2), cx_val, cy_val)
+                    # ★修正: a, b, z をキーに追加！
+                    current_key = (round(a_opt, 2), round(b_opt, 2), round(alpha_opt, 2), round(z_opt, 2), round(phi_opt, 2), round(theta2_val, 2), cx_val, cy_val)
                     if current_key in calculated_keys:
                         print(f"    Skip: cx={cx_val:5.2f}, cy={cy_val:5.2f} は計算済みのためスキップします。")
                         continue
@@ -142,9 +133,8 @@ def main_process(args):
                     params_for_vdw.update({'cx': cx_val, 'cy': cy_val, 'cz': 0.0})
                     
                     cz_vdw = estimate_vdw_cz(args.monomer_name, params_for_vdw)
-                    search_bounds = (cz_vdw - 1.0, cz_vdw + 1.0)
+                    search_bounds = (cz_vdw - 2.0, cz_vdw + 2.0)
                     
-                    # 最適化計算
                     res = minimize_scalar(
                         get_amber_energy_for_cz, 
                         args=(cx_val, cy_val, base_params, auto_dir, args.monomer_name),
@@ -166,7 +156,6 @@ def main_process(args):
                         'd_vdw': d_vdw_rise, 'd_opt': d_rise, 'E_total': best_E
                     })
                     
-                    # 1点計算が終わるたびにCSVに書き込む（追記モード）
                     if not args.isTest:
                         df_single = pd.DataFrame([res_dict])
                         if not os.path.exists(out_csv_path):
@@ -174,20 +163,19 @@ def main_process(args):
                         else:
                             df_single.to_csv(out_csv_path, mode='a', header=False, index=False)
                     
-                    # 次回のスキップ判定用に記録
                     calculated_keys.add(current_key)
-                    
-                    print(f"    Done: cx={cx_val:5.2f}, cy={cy_val:5.2f} | 上がり幅d={d_rise:.2f} Å | E_total={best_E:.4f}")
+                    print(f"    Done: cx={cx_val:5.2f}, cy={cy_val:5.2f} | d={d_rise:.2f} | E={best_E:.4f}")
 
     print(f"\nすべての計算が完了しました！")
     
-    # 最後に重複削除とソート（cxも含む）
     if not args.isTest and os.path.exists(out_csv_path):
         df_res = pd.read_csv(out_csv_path)
         if 'cx' not in df_res.columns:
             df_res['cx'] = 0.0
-        df_res = df_res.drop_duplicates(subset=['alpha', 'phi', 'theta2', 'cx', 'cy'], keep='last')
-        df_res = df_res.sort_values(['alpha', 'phi', 'theta2', 'cx', 'cy'])
+        # ★修正: a, b, z をソートと重複削除のキーに追加！
+        sort_keys = ['a', 'b', 'alpha', 'z', 'phi', 'theta2', 'cx', 'cy']
+        df_res = df_res.drop_duplicates(subset=sort_keys, keep='last')
+        df_res = df_res.sort_values(sort_keys)
         df_res.to_csv(out_csv_path, index=False)
         print(f"結果をソートして '{out_csv_path}' に最終保存しました。")
 
@@ -196,10 +184,10 @@ if __name__ == '__main__':
     parser.add_argument('--auto-dir', type=str, required=True)
     parser.add_argument('--monomer-name', type=str, required=True)
     parser.add_argument('--input-csv', type=str, required=True)
-    parser.add_argument('--cz-tol', type=float, default=0.1, help="SciPyでの cz 最適化の収束条件 (デフォルト: 0.1 Å)")
-    parser.add_argument('--mode', type=str, choices=['1D', '2D'], default='1D', help="スキャンモードの選択 (1D または 2D)")
-    parser.add_argument('--step-x', type=float, default=0.1, help="cx のスキャン間隔 (デフォルト: 0.1)")
-    parser.add_argument('--step-y', type=float, default=0.1, help="cy のスキャン間隔 (デフォルト: 0.1)")
+    parser.add_argument('--cz-tol', type=float, default=0.1, help="SciPyでの cz 最適化の収束条件")
+    parser.add_argument('--mode', type=str, choices=['1D', '2D'], default='1D', help="スキャンモード (1D or 2D)")
+    parser.add_argument('--step-x', type=float, default=0.1, help="cx のスキャン間隔")
+    parser.add_argument('--step-y', type=float, default=0.1, help="cy のスキャン間隔")
     parser.add_argument('--isTest', action='store_true')
     args = parser.parse_args()
     
