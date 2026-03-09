@@ -114,57 +114,69 @@ def main_process(args):
                 'theta1': alpha_opt, 'theta2': theta2_val 
             }
             print(f"  >> theta2 = {theta2_val} のスキャンを開始")
-            
-            for cy in cy_list:
-                cy_val = np.round(cy, 2)
-                
-                # ★追加：スキップ判定（すでに計算済みならAMBERを回さずに次へ！）
-                current_key = (round(alpha_opt, 2), round(phi_opt, 2), round(theta2_val, 2), cy_val)
-                if current_key in calculated_keys:
-                    print(f"    Skip: cy={cy_val:5.2f} は計算済みのためスキップします。")
-                    continue
-                
-                params_for_vdw = base_params.copy()
-                params_for_vdw.update({'cx': cx, 'cy': cy_val, 'cz': 0.0})
-                
-                cz_vdw = estimate_vdw_cz(args.monomer_name, params_for_vdw)
-                search_bounds = (cz_vdw - 2.0, cz_vdw + 2.0)
-                
-                # 最適化計算（SciPyがAMBERを何度も呼ぶ）
-                res = minimize_scalar(
-                    get_amber_energy_for_cz, 
-                    args=(cx, cy_val, base_params, auto_dir, args.monomer_name),
-                    bounds=search_bounds,
-                    method='bounded',
-                    options={'xatol': args.cz_tol} 
-                )
-                
-                best_cz = res.x
-                best_E = res.fun
-                v_z = cy_val * (2.0 * z_opt / b_opt)
+
+            if args.mode == '1D':
+                cx_list = [0.0]           # 1Dなら 0.0 のみ（1回ループ）
+                step_size_y = 0.1         # 1Dは細かくスキャン
+            elif args.mode == '2D':
+                step_size_x = 0.25        # ★2Dは計算量爆発を防ぐため少し粗くする
+                step_size_y = 0.25
+                num_points_x = int(a_opt / step_size_x) + 1
+                cx_list = np.linspace(-a_opt/2, a_opt/2, num_points_x)
+
+        # cx のループを追加（1Dの時は1回で終わる、2Dの時は数十回まわる）
+            for cx in cx_list:
+                cx_val = np.round(cx, 2)
+                for cy in cy_list:
+                    cy_val = np.round(cy, 2)
                     
-                d_rise = best_cz - v_z
-                d_vdw_rise = cz_vdw - v_z
-                
-                res_dict = base_params.copy()
-                res_dict.update({
-                    'cx': cx, 'cy': cy_val, 'cz_abs': best_cz,    
-                    'd_vdw': d_vdw_rise, 'd_opt': d_rise, 'E_total': best_E
-                })
-                
-                # ★追加：1点計算が終わるたびに、すぐにCSVに書き込む！（追記モード）
-                if not args.isTest:
-                    df_single = pd.DataFrame([res_dict])
-                    # ファイルが存在しなければヘッダー付きで新規作成、存在すればヘッダー無しで追記('a')
-                    if not os.path.exists(out_csv_path):
-                        df_single.to_csv(out_csv_path, index=False)
-                    else:
-                        df_single.to_csv(out_csv_path, mode='a', header=False, index=False)
-                
-                # 次回のスキップ判定用に記録しておく
-                calculated_keys.add(current_key)
-                
-                print(f"    Done: cy={cy_val:5.2f} | 上がり幅d={d_rise:.2f} Å | E_total={best_E:.4f}  (CSV保存済)")
+                    # ★追加：スキップ判定（すでに計算済みならAMBERを回さずに次へ！）
+                    current_key = (round(alpha_opt, 2), round(phi_opt, 2), round(theta2_val, 2), cx_val, cy_val)
+                    if current_key in calculated_keys:
+                        print(f"    Skip: cy={cy_val:5.2f} は計算済みのためスキップします。")
+                        continue
+                    
+                    params_for_vdw = base_params.copy()
+                    params_for_vdw.update({'cx': cx, 'cy': cy_val, 'cz': 0.0})
+                    
+                    cz_vdw = estimate_vdw_cz(args.monomer_name, params_for_vdw)
+                    search_bounds = (cz_vdw - 2.0, cz_vdw + 2.0)
+                    
+                    # 最適化計算（SciPyがAMBERを何度も呼ぶ）
+                    res = minimize_scalar(
+                        get_amber_energy_for_cz, 
+                        args=(cx, cy_val, base_params, auto_dir, args.monomer_name),
+                        bounds=search_bounds,
+                        method='bounded',
+                        options={'xatol': args.cz_tol} 
+                    )
+                    
+                    best_cz = res.x
+                    best_E = res.fun
+                    v_z = cy_val * (2.0 * z_opt / b_opt)
+                        
+                    d_rise = best_cz - v_z
+                    d_vdw_rise = cz_vdw - v_z
+                    
+                    res_dict = base_params.copy()
+                    res_dict.update({
+                        'cx': cx, 'cy': cy_val, 'cz_abs': best_cz,    
+                        'd_vdw': d_vdw_rise, 'd_opt': d_rise, 'E_total': best_E
+                    })
+                    
+                    # ★追加：1点計算が終わるたびに、すぐにCSVに書き込む！（追記モード）
+                    if not args.isTest:
+                        df_single = pd.DataFrame([res_dict])
+                        # ファイルが存在しなければヘッダー付きで新規作成、存在すればヘッダー無しで追記('a')
+                        if not os.path.exists(out_csv_path):
+                            df_single.to_csv(out_csv_path, index=False)
+                        else:
+                            df_single.to_csv(out_csv_path, mode='a', header=False, index=False)
+                    
+                    # 次回のスキップ判定用に記録しておく
+                    calculated_keys.add(current_key)
+                    
+                    print(f"    Done: cy={cy_val:5.2f} | 上がり幅d={d_rise:.2f} Å | E_total={best_E:.4f}  (CSV保存済)")
 
     print(f"\nすべての計算が完了しました！")
     if not args.isTest and os.path.exists(out_csv_path):
@@ -182,6 +194,7 @@ if __name__ == '__main__':
     parser.add_argument('--monomer-name', type=str, required=True)
     parser.add_argument('--input-csv', type=str, required=True)
     parser.add_argument('--cz-tol', type=float, default=0.1, help="SciPyでの cz 最適化の収束条件 (デフォルト: 0.1 Å)")
+    parser.add_argument('--mode', type=str, choices=['1D', '2D'])
     parser.add_argument('--isTest', action='store_true')
     args = parser.parse_args()
     
