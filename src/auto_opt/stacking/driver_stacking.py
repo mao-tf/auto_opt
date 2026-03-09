@@ -68,7 +68,7 @@ def get_amber_energy_for_cz(cz_val, cx_val, cy_val, base_params, auto_dir, monom
     out_file = exec_gjf_stacking(auto_dir, monomer_name, params, in_file="FF_calc.in", isTest=False)
     out_path = os.path.join(auto_dir, 'amber', out_file)
     try:
-        energy = amber_get_E(out_path)
+        energy_list = amber_get_E(out_path)
         return float(energy_list[0])
     except Exception:
         return 9999.0
@@ -80,17 +80,25 @@ def main_process(args):
     csv_path = Path(args.input_csv).resolve()
     df_input = pd.read_csv(csv_path)
     
-    all_results = []
+    # ★追加：出力するCSVのパスをあらかじめ決めておく
+    out_csv_path = os.path.join(auto_dir, 'cy_scan_results.csv')
     
+    # ★追加：すでに計算済みの条件を記録するリスト（再開用）
+    calculated_keys = set()
+    if os.path.exists(out_csv_path) and not args.isTest:
+        df_existing = pd.read_csv(out_csv_path)
+        print(f"既存の計算結果 '{out_csv_path}' を読み込みました。続きから再開します。")
+        for _, r in df_existing.iterrows():
+            # alpha, phi, theta2, cy をキーにして「計算済み」とみなす
+            key = (round(r['alpha'], 2), round(r['phi'], 2), round(r['theta2'], 2), round(r['cy'], 2))
+            calculated_keys.add(key)
+
     print(f"入力CSVから {len(df_input)} 件の構造を読み込みました。")
     print(f"cx=0 固定、cyの1次元スキャンを開始します (cz精度: {args.cz_tol} Å)...\n")
     
     for index, row in df_input.iterrows():
-        a_opt = row['a']
-        b_opt = row['b']
-        alpha_opt = row['alpha']
-        phi_opt = row['phi']
-        z_opt = row['z']
+        a_opt = row['a']; b_opt = row['b']; z_opt = row['z']
+        alpha_opt = row['alpha']; phi_opt = row['phi']
         
         cx = 0.0 
         step_size = 0.1
@@ -99,24 +107,30 @@ def main_process(args):
         
         print(f"\n--- 構造 {index+1}: alpha={alpha_opt}, phi={phi_opt}, z={z_opt} ---")
         
-        for theta2_val in [alpha_opt]:#必要であれば-alpha_optとalpha_opt+180と-alpha_opt+180も追加する
-            
+        for theta2_val in [alpha_opt, -alpha_opt]:
             base_params = {
                 'a': a_opt, 'b': b_opt, 'alpha': alpha_opt, 
                 'z': z_opt, 'phi': phi_opt,
                 'theta1': alpha_opt, 'theta2': theta2_val 
             }
-            
             print(f"  >> theta2 = {theta2_val} のスキャンを開始")
             
             for cy in cy_list:
                 cy_val = np.round(cy, 2)
+                
+                # ★追加：スキップ判定（すでに計算済みならAMBERを回さずに次へ！）
+                current_key = (round(alpha_opt, 2), round(phi_opt, 2), round(theta2_val, 2), cy_val)
+                if current_key in calculated_keys:
+                    print(f"    Skip: cy={cy_val:5.2f} は計算済みのためスキップします。")
+                    continue
+                
                 params_for_vdw = base_params.copy()
                 params_for_vdw.update({'cx': cx, 'cy': cy_val, 'cz': 0.0})
                 
                 cz_vdw = estimate_vdw_cz(args.monomer_name, params_for_vdw)
                 search_bounds = (cz_vdw - 2.0, cz_vdw + 2.0)
                 
+                # 最適化計算（SciPyがAMBERを何度も呼ぶ）
                 res = minimize_scalar(
                     get_amber_energy_for_cz, 
                     args=(cx, cy_val, base_params, auto_dir, args.monomer_name),
@@ -134,23 +148,33 @@ def main_process(args):
                 
                 res_dict = base_params.copy()
                 res_dict.update({
-                    'cx': cx, 
-                    'cy': cy_val, 
-                    'cz_abs': best_cz,    
-                    'd_vdw': d_vdw_rise,  
-                    'd_opt': d_rise,      
-                    'E_total': best_E
+                    'cx': cx, 'cy': cy_val, 'cz_abs': best_cz,    
+                    'd_vdw': d_vdw_rise, 'd_opt': d_rise, 'E_total': best_E
                 })
-                all_results.append(res_dict)
                 
-                print(f"    Done: cy={cy_val:5.2f} | 床vz={v_z:.2f} | 上がり幅d={d_rise:.2f} Å | E_total={best_E:.4f}")
-            
-    if not args.isTest and all_results:
-        df_res = pd.DataFrame(all_results)
-        df_res = df_res.sort_values(['alpha', 'phi', 'cy'])
-        out_csv_path = os.path.join(auto_dir, 'cy_scan_results.csv')
+                # ★追加：1点計算が終わるたびに、すぐにCSVに書き込む！（追記モード）
+                if not args.isTest:
+                    df_single = pd.DataFrame([res_dict])
+                    # ファイルが存在しなければヘッダー付きで新規作成、存在すればヘッダー無しで追記('a')
+                    if not os.path.exists(out_csv_path):
+                        df_single.to_csv(out_csv_path, index=False)
+                    else:
+                        df_single.to_csv(out_csv_path, mode='a', header=False, index=False)
+                
+                # 次回のスキップ判定用に記録しておく
+                calculated_keys.add(current_key)
+                
+                print(f"    Done: cy={cy_val:5.2f} | 上がり幅d={d_rise:.2f} Å | E_total={best_E:.4f}  (CSV保存済)")
+
+    print(f"\nすべての計算が完了しました！")
+    if not args.isTest and os.path.exists(out_csv_path):
+        df_res = pd.read_csv(out_csv_path)
+        # 同じ条件の行が重複して書き込まれていた場合の念のための処理
+        df_res = df_res.drop_duplicates(subset=['alpha', 'phi', 'theta2', 'cy'], keep='last')
+        # きれいにソート
+        df_res = df_res.sort_values(['alpha', 'phi', 'theta2', 'cy'])
         df_res.to_csv(out_csv_path, index=False)
-        print(f"\n完了！結果は '{out_csv_path}' に保存されました。")
+        print(f"結果をソートして '{out_csv_path}' に最終保存しました。")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
