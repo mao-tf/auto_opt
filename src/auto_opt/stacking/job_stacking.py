@@ -4,13 +4,12 @@
 """
 Step 1 (Intralayer Search) のジョブ投入スクリプト
 指定されたディレクトリ内の step1_init_params.csv を読み込み、
-alpha1 (下層分子の傾き) ごとにサブディレクトリを作成して計算ジョブを分散投入します。
-
-python -m auto_opt.stacking.job_stacking --auto-dir runs/ANT_stacking_test6 --monomer-name ANT --num-nodes 10
+指定された数（num_splits）に均等分割して、サブディレクトリを作成しジョブを分散投入します。
 """
 
 import os
 import pandas as pd
+import numpy as np
 import argparse
 import subprocess
 from pathlib import Path
@@ -29,15 +28,23 @@ def init_process(args):
         raise FileNotFoundError(f"初期パラメータファイルが見つかりません: {params_csv}")
 
     df_init = pd.read_csv(params_csv)
+    total_rows = len(df_init)
+    
+    if total_rows == 0:
+        print("CSVが空です。処理を終了します。")
+        return
 
-    # ★修正1: 'alpha' ではなく 'alpha1' をキーにする
-    if 'alpha1' not in df_init.columns:
-         raise ValueError(f"{params_csv} に 'alpha1' カラムが含まれていません。")
-         
-    alpha_list = sorted(df_init['alpha1'].unique())
-    print(f"Detected alpha1 values: {alpha_list}")
+    num_splits = args.num_splits
+    print(f"Total rows: {total_rows}")
+    print(f"Splitting into {num_splits} chunks...")
 
-    for i, alpha in enumerate(alpha_list):
+    # ★修正ポイント: np.array_split を使って DataFrame を綺麗な等分リストに分割
+    df_chunks = np.array_split(df_init, num_splits)
+
+    for i, df_chunk in enumerate(df_chunks):
+        if df_chunk.empty:
+            continue
+            
         # 交互にキュー（マシンタイプ）を振り分ける
         machine_type = 1 if i % 2 == 0 else 2
             
@@ -45,34 +52,29 @@ def init_process(args):
         queue = spec["queue"]
         nproc = spec["nproc"]
 
-        # ディレクトリ名は alpha1 の値
-        dir_name = f'alpha_{alpha}'
+        # ディレクトリ名は split_0, split_1 ... と連番にする
+        dir_name = f'split_{i}'
         subdir = auto_dir_root / dir_name
         subdir.mkdir(parents=True, exist_ok=True)
 
-        # この alpha1 の行だけ抜き出して保存
-        df_alpha = df_init[df_init['alpha1'] == alpha]
-        
-        if df_alpha.empty:
-            continue
-
-        df_alpha.to_csv(subdir / 'step1_init_params.csv', index=False)
+        # 分割された数行〜数百行のデータを保存
+        df_chunk.to_csv(subdir / 'step1_init_params.csv', index=False)
         auto_dir_for_driver = str(subdir)
 
-        # ★修正2: 呼び出す先を driver_stacking_v2 に変更
+        # driver_stacking_v2 を呼び出すコマンド
         cmd = (
             'python -m auto_opt.stacking.driver_stacking_v2 '
             f'--auto-dir {auto_dir_for_driver} '
             f'--monomer-name {args.monomer_name} '
             f'--num-nodes {args.num_nodes} '
-            f'--max-2 3' # ← 必要に応じて引数を追加
+            f'--max-2 3'
         )
         if args.isTest:
             cmd += ' --isTest'
 
-        job_name = f"{args.monomer_name}_{alpha}"
-        out_path = subdir / f"job.sh.o{alpha}" 
-        err_path = subdir / f"job.sh.e{alpha}"
+        job_name = f"{args.monomer_name}_{i}"
+        out_path = subdir / f"job.sh.o{i}" 
+        err_path = subdir / f"job.sh.e{i}"
 
         job_lines = [
             "#!/bin/sh\n",
@@ -81,7 +83,7 @@ def init_process(args):
             "#$ -cwd\n",
             "#$ -V\n",
             f"#$ -q {queue}\n",
-            f"#$ -pe OpenMP {nproc}\n", # ← ここで52コアや40コアを確保！
+            f"#$ -pe OpenMP {nproc}\n",
             f"#$ -o {out_path}\n", 
             f"#$ -e {err_path}\n", 
             "\n",
@@ -95,15 +97,17 @@ def init_process(args):
         with open(job_path, 'w') as f:
             f.writelines(job_lines)
 
-        print(f"Submitting job for alpha1={alpha} into {queue}...")
+        print(f"Submitting job for {dir_name} (Rows: {len(df_chunk)}) into {queue}...")
         subprocess.run(['qsub', 'job.sh'], cwd=str(subdir))
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Step 1 Job Dispatcher')
+    parser = argparse.ArgumentParser(description='Step 1 Job Dispatcher (Split by rows)')
     parser.add_argument('--isTest', action='store_true')
     parser.add_argument('--auto-dir', type=str, required=True)
     parser.add_argument('--monomer-name', type=str, default='ANT')
     parser.add_argument('--num-nodes', type=int, default=10)
+    # ★追加: 何分割するかをコマンドラインから指定できるようにしました（デフォルト6）
+    parser.add_argument('--num-splits', type=int, default=6, help='CSVを何等分してジョブを投げるか')
     args = parser.parse_args()
 
     init_process(args)
