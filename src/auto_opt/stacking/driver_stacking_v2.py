@@ -71,8 +71,8 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, machine_type, isTest=Fal
     os.chmod(job_file, 0o755)
     
     if not isTest:
-        # バックグラウンドで実行 (machine_typeによって投入先を変える場合はここを編集)
-        subprocess.Popen([job_file], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # バックグラウンドの直接実行ではなく、qsubでキューにジョブを投入する
+        subprocess.run(f"qsub {job_file}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
     return base_file_name
 
