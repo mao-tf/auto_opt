@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+"""
+python auto_opt.stacking.driver_stacking_v2.py --auto-dir runs/ANT_stakcing_test6 --monomer-name ANT --num-nodes 10 --max-2 3
+"""
+
 import os
 os.environ['HOME'] ='/home/miyoshi'
 import pandas as pd
@@ -90,6 +95,7 @@ def read_10pairs_amber(auto_dir, base_file_name):
 
 
 def main_process(args):
+    args.auto_dir = os.path.abspath(args.auto_dir)
     auto_dir = args.auto_dir
     os.makedirs(auto_dir, exist_ok=True)
     os.makedirs(os.path.join(auto_dir,'amber'), exist_ok=True)
