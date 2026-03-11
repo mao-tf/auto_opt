@@ -71,9 +71,9 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, machine_type, isTest=Fal
     os.chmod(job_file, 0o755)
     
     if not isTest:
-        # バックグラウンドの直接実行ではなく、qsubでキューにジョブを投入する
-        subprocess.run(f"qsub {job_file}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
+        # バックグラウンドでローカル実行 (計算ノード内で並列を回すため)
+        subprocess.Popen([job_file], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
     return base_file_name
 
 def read_10pairs_amber(auto_dir, base_file_name):
