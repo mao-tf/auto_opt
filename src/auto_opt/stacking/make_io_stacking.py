@@ -35,9 +35,9 @@ def get_monomer_xyzR(monomer_name, Ta, Tb, Tc, phi, alpha):
     
     return np.concatenate([xyz_array, R_array], axis=1)
 
-def get_10_pairs_xyzR(monomer_name, params_dict):
+def get_14_pairs_xyzR(monomer_name, params_dict):
     """
-    大野さんのコードを基にした 10ペア (7ペア + 3ペア) のダイマー座標生成
+    大野さんのコードを基にした 14ペア (7ペア + 3ペア) のダイマー座標生成
     """
     a = float(params_dict.get('a', 0.0))
     b = float(params_dict.get('b', 0.0))
@@ -54,6 +54,8 @@ def get_10_pairs_xyzR(monomer_name, params_dict):
     mon_i  = get_monomer_xyzR(monomer_name, 0, 0, 0, phi, alpha1)
     mon_p1 = get_monomer_xyzR(monomer_name, 0, b, 2*z, phi, alpha1)
     mon_p2 = get_monomer_xyzR(monomer_name, 0, -b, -2*z, phi, alpha1)
+    mon_p3 = get_monomer_xyzR(monomer_name, a, 0, 0, phi, alpha1)
+    mon_p4 = get_monomer_xyzR(monomer_name, -a, 0, 0, phi, alpha1)
     mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2, z, phi, -alpha1)
     mon_t2 = get_monomer_xyzR(monomer_name, -a/2, b/2, z, phi, -alpha1)
     mon_t3 = get_monomer_xyzR(monomer_name, a/2, -b/2, -z, phi, -alpha1)
@@ -64,11 +66,16 @@ def get_10_pairs_xyzR(monomer_name, params_dict):
     mon_i_  = get_monomer_xyzR(monomer_name, 0, 0, 0, phi, -alpha1)
     mon_p1_ = get_monomer_xyzR(monomer_name, 0, b, 2*z, phi, -alpha1)
     mon_p2_ = get_monomer_xyzR(monomer_name, 0, -b, -2*z, phi, -alpha1)
+    mon_p3_ = get_monomer_xyzR(monomer_name, a, 0, 0, phi, -alpha1)
+    mon_p4_ = get_monomer_xyzR(monomer_name, -a, 0, 0, phi, -alpha1)
+    
 
     pairs = [
         np.concatenate([mon_c, mon_i], axis=0),
         np.concatenate([mon_c, mon_p1], axis=0),
         np.concatenate([mon_c, mon_p2], axis=0),
+        np.concatenate([mon_c, mon_p3], axis=0),
+        np.concatenate([mon_c, mon_p4], axis=0),
         np.concatenate([mon_c, mon_t1], axis=0),
         np.concatenate([mon_c, mon_t2], axis=0),
         np.concatenate([mon_c, mon_t3], axis=0),
@@ -76,6 +83,8 @@ def get_10_pairs_xyzR(monomer_name, params_dict):
         np.concatenate([mon_c_, mon_i_], axis=0),
         np.concatenate([mon_c_, mon_p1_], axis=0),
         np.concatenate([mon_c_, mon_p2_], axis=0),
+        np.concatenate([mon_c_, mon_p3_], axis=0),
+        np.concatenate([mon_c_, mon_p4_], axis=0),
     ]
     return pairs
 
@@ -134,8 +143,8 @@ def get_xyzR_lines(xyzr_array: np.ndarray, monomer_name: str) -> List[str]:
     return lines
 
 
-def exec_10pairs_energy(auto_dir: str, monomer_name: str, params_dict: dict, in_file: str = "FF_calc.in", isTest: bool = False) -> float:
-    pairs = get_10_pairs_xyzR(monomer_name, params_dict)
+def exec_14pairs_energy(auto_dir: str, monomer_name: str, params_dict: dict, in_file: str = "FF_calc.in", isTest: bool = False) -> float:
+    pairs = get_14_pairs_xyzR(monomer_name, params_dict)
     
     out_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(out_dir, exist_ok=True)
@@ -154,7 +163,7 @@ def exec_10pairs_energy(auto_dir: str, monomer_name: str, params_dict: dict, in_
         f'fi'
     )
 
-    # 10ジョブを並べて一つの bash スクリプトとして高速一括実行
+    # 14ジョブを並べて一つの bash スクリプトとして高速一括実行
     cmds = [parmchk_cmd]
     out_files = []
     

@@ -14,13 +14,13 @@ import numpy as np
 import subprocess
 from pathlib import Path
 
-from auto_opt.stacking.make_io_stacking import get_10_pairs_xyzR, get_xyzR_lines
+from auto_opt.stacking.make_io_stacking import get_14_pairs_xyzR, get_xyzR_lines
 from auto_opt.amber.make_io_gene_phi_asym_anti import _guess_mol2_path
 from auto_opt.utils import amber_get_E
 
 def exec_amber_job(auto_dir, monomer_name, params_dict, machine_type, isTest=False):
     """
-    10ペア分のmol2とtleap入力を作り、1つのジョブスクリプトとしてバックグラウンド実行する
+    14ペア分のmol2とtleap入力を作り、1つのジョブスクリプトとしてバックグラウンド実行する
     """
     out_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(out_dir, exist_ok=True)
@@ -30,7 +30,7 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, machine_type, isTest=Fal
     cz_str = f"{params_dict['cz']:.2f}".replace('.', 'p').replace('-', 'm')
     base_file_name = f"{monomer_name}_cx{cx_str}_cy{cy_str}_cz{cz_str}" #[my_memo] ファイル名に.(ドット)や-(ハイフン)が入らないように変形
     
-    pairs = get_10_pairs_xyzR(monomer_name, params_dict)
+    pairs = get_14_pairs_xyzR(monomer_name, params_dict)
     monomer_mol2 = str(_guess_mol2_path(monomer_name))
     frcmod_name = f"{monomer_name}_gaff2.frcmod"
     
@@ -73,16 +73,16 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, machine_type, isTest=Fal
     if not isTest:
         # バックグラウンドでローカル実行 (計算ノード内で並列を回すため)
         subprocess.Popen([job_file], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
+
     return base_file_name
 
-def read_10pairs_amber(auto_dir, base_file_name):
+def read_14pairs_amber(auto_dir, base_file_name):
     """
-    10個のAMBER計算がすべて完了しているか確認し、エネルギーのリストを返す
+    14個のAMBER計算がすべて完了しているか確認し、エネルギーのリストを返す
     完了していなければ空リストを返す
     """
     E_list = []
-    for i in range(10):
+    for i in range(14):
         out_file = os.path.join(auto_dir, 'amber', f"{base_file_name}_p{i}.out")
         if not os.path.exists(out_file):
             return []
@@ -109,7 +109,7 @@ def main_process(args):
     auto_csv_path = os.path.join(auto_dir,'step1.csv')
     if not os.path.exists(auto_csv_path):
         cols = ['cx','cy','cz','alpha1','alpha2','a','b','z','phi','E',
-                'E1','E2','E3','E4','E5','E6','E7','E8','E9','E10',
+                'E1','E2','E3','E4','E5','E6','E7','E8','E9','E10','E11','E12','E13','E14',
                 'status','machine_type','file_name']
         df_E = pd.DataFrame(columns=cols)
         df_E.to_csv(auto_csv_path, index=False)
@@ -139,16 +139,16 @@ def listen(auto_dir, monomer_name, num_nodes, max_2, isTest):
         params_dict1_ = row[fixed_param_keys + opt_param_keys + ['file_name']].to_dict()
         file_name1 = params_dict1_['file_name']
         
-        # AMBERの10ファイルの終了確認
-        E_list1 = read_10pairs_amber(auto_dir, file_name1)
+        # AMBERの14ファイルの終了確認
+        E_list1 = read_14pairs_amber(auto_dir, file_name1)
         
-        if len(E_list1) != 10:
+        if len(E_list1) != 14:
             continue
         else:
             len_prg_1 -= 1
             E_total = sum(E_list1)
             
-            update_cols = ['E', 'E1','E2','E3','E4','E5','E6','E7','E8','E9','E10', 'status']
+            update_cols = ['E', 'E1','E2','E3','E4','E5','E6','E7','E8','E9','E10','E11','E12','E13','E14','status']
             update_vals = [E_total] + E_list1 + ['Done']
             
             df_E_1.loc[idx, update_cols] = update_vals
