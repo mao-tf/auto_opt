@@ -3,13 +3,13 @@
 """
 使用例:
 1. 全て出力（デフォルト）
-   python -m auto_opt.vdw.extract_init_phi --vdw-csv ... --out ... --minima
+   python -m auto_opt.vdw.extract_init_phi --vdw-csv runs//vdW_r_contact_monomer.csv --out runs//step1_init_params.csv --minima
 
 2. a-stack のみ出力
-   python -m auto_opt.vdw.extract_init_phi --vdw-csv ... --out ... --select a-stack
+   python -m auto_opt.vdw.extract_init_phi --vdw-csv runs//vdW_r_contact_monomer.csv --out runs//step1_init_params.csv --select a-stack
 
 3. b-stack と local_min のみ出力
-   python -m auto_opt.vdw.extract_init_phi --vdw-csv ... --out ... --minima --select b-stack local_min
+   python -m auto_opt.vdw.extract_init_phi --vdw-csv runs//vdW_r_contact_monomer.csv --out runs//step1_init_params.csv --minima --select b-stack local_min
 """
 import argparse
 import numpy as np
