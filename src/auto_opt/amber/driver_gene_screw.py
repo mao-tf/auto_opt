@@ -20,7 +20,7 @@ AMBER_REF = DATA / "amber_ref"
 RES = Path(__file__).resolve().parent / "resources"
 
 # z を fixed_param_keys に移動し、最適化の対象から外す
-fixed_param_keys = ['alpha', 'phi', 'z']
+fixed_param_keys = ['alpha', 'beta', 'z']
 opt_param_keys_1 = ['a']
 opt_param_keys_2 = ['b']
 opt_param_keys_3 = ['a', 'bt1']
@@ -41,7 +41,7 @@ def main_process(args):
     
     auto_csv_path = os.path.join(auto_dir,'step1.csv')
     if not os.path.exists(auto_csv_path):        
-        df_E = pd.DataFrame(columns = ['alpha','phi','z','a','b','bt1','bt2','E','E1','E2','E3','E4','status'])
+        df_E = pd.DataFrame(columns = ['alpha','beta','z','a','b','bt1','bt2','E','E1','E2','E3','E4','status'])
         df_E.to_csv(auto_csv_path,index=False)
 
     auto_csv_path1 = os.path.join(auto_dir,'step1_1.csv')
@@ -215,7 +215,7 @@ def get_params_dict(auto_dir, num_nodes):
     df_init_params_inprogress = df_init_params[df_init_params['status']=='InProgress']
     
     # Initパラメータ全てを使う (ここではzも含まれる)
-    all_keys = ['alpha','phi','z','a','b','bt1','bt2']
+    all_keys = ['alpha','beta','z','a','b','bt1','bt2']
     
     if len(df_init_params_inprogress) < num_nodes:
         df_init_params_notyet = df_init_params[df_init_params['status']=='NotYet']

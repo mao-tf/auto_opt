@@ -34,10 +34,10 @@ def init_process(args):
     df_init = pd.read_csv(auto_dir_root / 'step1_init_params.csv')
 
     # alpha ごとにサブディレクトリを作る
-    phi_list = sorted(df_init['phi'].unique())
+    beta_list = sorted(df_init['beta'].unique())
     # もしくは df_init["alpha"].unique() でもよい
 
-    for i, phi in enumerate(phi_list):
+    for i, beta in enumerate(beta_list):
         if i%2==0: 
             machine_type=1
         else: 
@@ -45,17 +45,17 @@ def init_process(args):
         spec=MACHINE_SPEC[machine_type]
         queue = spec["queue"]
         nproc = spec["nproc"]
-        dir_name = f'{phi}'
+        dir_name = f'{beta}'
         subdir = auto_dir_root / dir_name
         subdir.mkdir(parents=True, exist_ok=True)
 
         # この alpha の行だけ抜き出して保存
-        df_phi = df_init[df_init['phi'] == phi]
-        if df_phi.empty:
+        df_beta = df_init[df_init['beta'] == beta]
+        if df_beta.empty:
             # その alpha の初期点が無いならジョブを投げない
             continue
 
-        df_phi.to_csv(subdir / 'step1_init_params.csv', index=False)
+        df_beta.to_csv(subdir / 'step1_init_params.csv', index=False)
 
         # driver_gene に渡す auto-dir は「その alpha のディレクトリ」
         auto_dir_for_driver = str(subdir)
