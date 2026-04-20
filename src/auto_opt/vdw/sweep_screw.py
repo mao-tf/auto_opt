@@ -2,10 +2,10 @@
 """
 Usage Example:
 1. Range mode (Original):
-   python -m auto_opt.vdw.sweep_phi_screw --monomer-path data/monomer/.xyz --out-dir runs/ --z-min --z-max --z-step --phi-min --phi-max --phi-step --alpha-min 60 --alpha-max 70 --alpha-step 5
+   python -m auto_opt.vdw.sweep_screw --monomer-path data/monomer/.xyz --out-dir runs/ --z-min --z-max --z-step --beta-min --beta-max --beta-step --alpha-min 60 --alpha-max 70 --alpha-step 5
 
 2. List mode (New):
-   python -m auto_opt.vdw.sweep_phi ... --alpha-list 60 65 66.5 70
+   python -m auto_opt.vdw.sweep_screw ... --alpha-list 60 65 66.5 70
 """
 from __future__ import annotations
 import math, argparse, pathlib
@@ -30,21 +30,22 @@ def read_xyz(path: str) -> List[List[object]]:
         raise ValueError(f"No XYZ rows parsed from {path}. Expect lines: 'El x y z'")
     return rows
 
-# --- 幾何 --------------------------------------------------------------------
-def t_shaped_pair(base_axyz, Rx, Rz, z):
+# --- 幾何 -------------------------------------------------------------------
+def t_shaped_pair(base_axyz, Rx, Rz, b, z):
     axyz_1, axyz_2 = [], []
     for x, y, zz, sym in base_axyz:
-        rot = np.matmul(np.array([x, y, zz]), Rx)
-        rot = np.matmul(rot, Rz)
-        axyz_1.append([ rot[0],  rot[1],  rot[2],     sym])
-        axyz_2.append([-rot[0],  rot[1],  rot[2] + z, sym])
+        rot = np.matmul(np.array([x, y, zz]), Rz)
+        rot = np.matmul(rot, Rx)
+        axyz_1.append([ rot[0],      rot[1], rot[2],   sym])
+        axyz_2.append([ -rot[0], rot[1]+b/2, rot[2]+z, sym]) # Note: Check if 2*z is intended for your specific model
     return axyz_1, axyz_2
+
 
 def parallel_pair(base_axyz, Rx, Rz, z):
     axyz_1, axyz_2 = [], []
     for x, y, zz, sym in base_axyz:
-        rot = np.matmul(np.array([x, y, zz]), Rx)
-        rot = np.matmul(rot, Rz)
+        rot = np.matmul(np.array([x, y, zz]), Rz)
+        rot = np.matmul(rot, Rx)
         axyz_1.append([ rot[0],  rot[1],  rot[2], sym])
         axyz_2.append([ rot[0],  rot[1],  rot[2], sym]) # Note: Check if 2*z is intended for your specific model
     return axyz_1, axyz_2
@@ -99,8 +100,7 @@ def vdw_R(axyz_1, axyz_2, theta_deg: float) -> float:
 # --- スイープ本体 ------------------------------------------------------------
 def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: float,
           alpha_config: dict, # Changed to dict to handle logic inside
-          phi_min: float, phi_max: float, phi_step: float,
-          theta_step: float, eps_a: float, eps_b: float) -> None:
+          beta_min: float, beta_max: float, beta_step: float) -> None:
 
     out = pathlib.Path(out_dir); out.mkdir(parents=True, exist_ok=True)
     monomer_name = pathlib.Path(monomer_path).stem
@@ -120,12 +120,7 @@ def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: fl
     # ------------------------
 
     z_vals = [round(z, 1) for z in np.arange(z_min, z_max + 1e-9, z_step)]
-    phis = [float(p) for p in np.arange(phi_min, phi_max + 1e-9, phi_step)]
-    thetas = [float(t) for t in np.arange(0, 91, theta_step)]
-    
-    # Pre-calculate trig values
-    cosb = {b: math.cos(math.radians(b)) for b in thetas}
-    sinb = {b: math.sin(math.radians(b)) for b in thetas}
+    betas = [float(p) for p in np.arange(beta_min, beta_max + 1e-9, beta_step)]
 
     base_axyz = read_xyz(monomer_path)
     ex = np.array([1., 0., 0.])
@@ -134,41 +129,29 @@ def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: fl
     all_rows = []
     
     # Progress check for long loops
-    total_iter = len(z_vals) * len(phis) * len(alphas)
+    total_iter = len(z_vals) * len(betas) * len(alphas)
     print(f"Starting sweep... Total configurations to check: {total_iter}")
 
     count = 0
     for z in z_vals:
-        for phi in phis:
-            Rx = Rod(-ex, phi)
+        for beta in betas:
+            Rx = Rod(-ex, beta)
             for alpha in alphas:
                 Rz = Rod(ez, alpha)
                 
                 # Calculation Logic
                 axyz_c, axyz_a = parallel_pair(base_axyz, Rx, Rz, 0)
-                axyz_c, axyz_b = parallel_pair(base_axyz, Rx, Rz, 0)
-                R_a = vdw_R(axyz_c, axyz_a, 0.0)
-                R_b = vdw_R(axyz_c, axyz_b, 90.0)
-                axyz_c, axyz_t = t_shaped_pair(base_axyz, Rx, Rz, z)
-                
-                for beta in thetas:
-                    R_clps_1 = vdw_R(axyz_c, axyz_t, beta)
-                    ca_1 = R_a - 2.0 * R_clps_1 * cosb[beta]
-                    cb_1 = R_b - 2.0 * R_clps_1 * sinb[beta]
-                    R_clps_2 = vdw_R(axyz_c, axyz_t, -beta)
-                    ca_2 = R_a - 2.0 * R_clps_2 * cosb[beta]
-                    cb_2 = R_b - 2.0 * R_clps_2 * sinb[beta]
-                    ok = (ca_1 <= eps_a) and (cb_1 <= eps_b) and (ca_2 <= eps_a) and (cb_2 <= eps_b)
-                    R_clps = max(R_clps_1, R_clps_2)
-                    all_rows.append([alpha, phi, beta, z, R_clps, ok])
-                
-                count += 1
-                if count % 1000 == 0:
-                    print(f"Processed {count}/{total_iter}...")# Print progress every 1,000 iterations to monitor status.
+                R_b = vdw_R(axyz_c, axyz_a, 90)
+                axyz_c, axyz_t = t_shaped_pair(base_axyz, Rx, Rz, R_b, z)
+                R_a = vdw_R(axyz_c, axyz_t, 0.0)
+                R_a *= 2
+                # beta を phi 列に、R_a, R_b を a, b 列に当てはめ、Amber用のステータスも追加
+                all_rows.append([alpha, beta, round(R_a, 2), round(R_b, 2), round(R_b/2, 2), round(R_b/2, 2), z, "NotYet", "vdW_min"])
 
-    df = pd.DataFrame(all_rows, columns=['alpha','phi','beta','z','R_clps','TorF'])
-    df = df.sort_values(['z','alpha','phi','beta']).reset_index(drop=True)
-    out_csv = out / f"vdW_r_contact_{monomer_name}.csv"
+    # ドライバがそのまま読み込めるヘッダー名に変更
+    df = pd.DataFrame(all_rows, columns=['alpha', 'phi', 'a', 'b', 'bt1', 'bt2', 'z', 'status', 'structure_type'])
+    df = df.sort_values(['z','alpha','beta']).reset_index(drop=True)
+    out_csv = out / f"step1_init_params.csv"
     df.to_csv(out_csv, index=False)
     print(f"Wrote {out_csv} (n={len(df)})")
 
@@ -189,15 +172,10 @@ def main():
     ap.add_argument('--alpha-step', type=float, default=5)
     ap.add_argument('--alpha-list', type=float, nargs='+', help='Specific alpha values list (e.g. 60 65 70). Overrides min/max/step.')
     
-    # Phi params
-    ap.add_argument('--phi-min', type=float, default=0.0)
-    ap.add_argument('--phi-max', type=float, default=0.0)
-    ap.add_argument('--phi-step', type=float, default=1)
-    
-    # Step 1 specific params
-    ap.add_argument('--theta-step', type=float, default=5)
-    ap.add_argument('--eps-a', type=float, default=1e-3)
-    ap.add_argument('--eps-b', type=float, default=1e-2)
+    # Beta params
+    ap.add_argument('--beta-min', type=float, default=0.0)
+    ap.add_argument('--beta-max', type=float, default=0.0)
+    ap.add_argument('--beta-step', type=float, default=1)
     
     args = ap.parse_args()
     
@@ -211,8 +189,7 @@ def main():
 
     sweep(args.monomer_path, args.out_dir, args.z_min, args.z_max, args.z_step,
           alpha_config, # Pass dict
-          args.phi_min, args.phi_max, args.phi_step,
-          args.theta_step, args.eps_a, args.eps_b)
+          args.beta_min, args.beta_max, args.beta_step)
 
 if __name__ == '__main__':
     main()

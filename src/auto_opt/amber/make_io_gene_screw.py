@@ -112,9 +112,8 @@ def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float, A2: flo
 
     ex = np.array([1., 0., 0.]); ez = np.array([0., 0., 1.])
     xyz = atoms_array_xyzR[:, :3]
-    # x軸に -A2 回転 → z軸 A3 回転（あなたの元コード準拠）
-    xyz = xyz @ Rod(-ex, A2).T
     xyz = xyz @ Rod(ez, A3).T
+    xyz = xyz @ Rod(-ex, A2).T
     xyz = xyz + T_vec
 
     R = atoms_array_xyzR[:, 3].reshape((-1, 1))
@@ -259,16 +258,18 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
       1 → a-ダイマー, 2 → b-ダイマー, 3 → t 3配置（i+p1+p2+t1+t2）
     """
     a = params_dict.get('a', 0.0)
-    b = params_dict.get('b', 0.0)
+    bt1 = params_dict.get('bt1', 0.0)
+    bt2 = params_dict.get('bt2', 0.0)
+    b = bt1 + bt2
     z = params_dict.get('z', 0.0)
-    A2 = params_dict.get('phi', 0.0)
+    A2 = params_dict.get('beta', 0.0)
     A3 = params_dict.get('alpha', 0.0)
 
     mon_i  = get_monomer_xyzR(monomer_name, 0,    0,    0,   A2,  A3)
     mon_p1 = get_monomer_xyzR(monomer_name, a,    0,    0,   A2,  A3)
     mon_p2 = get_monomer_xyzR(monomer_name, 0,    b,    0,   A2,  A3)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2,  b/2,  z,   A2, -A3)
-    mon_t3 = get_monomer_xyzR(monomer_name, a/2,  -b/2, z,   A2, -A3)
+    mon_t1 = get_monomer_xyzR(monomer_name, a/2,  bt1,  z,   A2, -A3)
+    mon_t3 = get_monomer_xyzR(monomer_name, a/2,  -bt2, z,   A2, -A3)
 
     if structure_type == 1:
         arr = np.concatenate([mon_i, mon_p1], axis=0)
@@ -292,7 +293,7 @@ def make_xyz(monomer_name: str, params_dict: dict, structure_type: int) -> str:
     for key, val in params_dict.items():
         if key in ['a', 'b', 'z']:
             val = np.round(val, 2)
-        elif key in ['phi', 'alpha']:
+        elif key in ['beta', 'alpha']:
             val = int(val)
         name += f"_{key}_{val}"
     return name + f'_{structure_type}.xyz'
@@ -304,7 +305,7 @@ def make_xyz(monomer_name: str, params_dict: dict, structure_type: int) -> str:
 def get_file_name_from_dict(monomer_name: str, params_dict: dict, structure_type: int) -> str:
     name = monomer_name
     for key, val in params_dict.items():
-        if key in ['phi', 'alpha']:
+        if key in ['beta', 'alpha']:
             val = int(val)
         name += f"_{key}_{val}"
     return name + f'_{structure_type}.mol2'
@@ -315,16 +316,18 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     structure_type=1(a),2(b),3(t) のいずれかで1ダイマーのみを書き出す。
     """
     a = params_dict.get('a', 0.0)
-    b = params_dict.get('b', 0.0)
+    bt1 = params_dict.get('bt1', 0.0)
+    bt2 = params_dict.get('bt2', 0.0)
+    b = bt1 + bt2
     z = params_dict.get('z', 0.0)
-    A2 = params_dict.get('phi', 0.0)
+    A2 = params_dict.get('beta', 0.0)
     A3 = params_dict.get('alpha', 0.0)
 
     mon_i  = get_monomer_xyzR(monomer_name, 0,   0,    0,   A2,  A3)
     mon_p1 = get_monomer_xyzR(monomer_name, a,   0,    0,   A2,  A3)
     mon_p2 = get_monomer_xyzR(monomer_name, 0,   b,    0,   A2,  A3)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2,  z,   A2, -A3)
-    mon_t3 = get_monomer_xyzR(monomer_name, a/2, -b/2, z,   A2, -A3)
+    mon_t1 = get_monomer_xyzR(monomer_name, a/2, bt1,  z,   A2, -A3)
+    mon_t3 = get_monomer_xyzR(monomer_name, a/2, -bt2, z,   A2, -A3)
 
     if structure_type == 1:
         dimer = np.concatenate([mon_i, mon_p1], axis=0)
