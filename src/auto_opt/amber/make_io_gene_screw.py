@@ -260,7 +260,7 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     a = params_dict.get('a', 0.0)
     bt1 = params_dict.get('bt1', 0.0)
     bt2 = params_dict.get('bt2', 0.0)
-    b = params_dict.get('b', np.round(bt1 + bt2, 2))
+    b = params_dict.get('b', 0.0)
     z = params_dict.get('z', 0.0)
     A2 = params_dict.get('beta', 0.0)
     A3 = params_dict.get('alpha', 0.0)
@@ -318,7 +318,7 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     a = params_dict.get('a', 0.0)
     bt1 = params_dict.get('bt1', 0.0)
     bt2 = params_dict.get('bt2', 0.0)
-    b = bt1 + bt2
+    b = params_dict.get('b', 0.0)
     z = params_dict.get('z', 0.0)
     A2 = params_dict.get('beta', 0.0)
     A3 = params_dict.get('alpha', 0.0)
