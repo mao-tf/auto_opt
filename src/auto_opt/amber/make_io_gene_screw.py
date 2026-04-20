@@ -260,7 +260,7 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     a = params_dict.get('a', 0.0)
     bt1 = params_dict.get('bt1', 0.0)
     bt2 = params_dict.get('bt2', 0.0)
-    b = bt1 + bt2
+    b = params_dict.get('b', np.round(bt1 + bt2, 2))
     z = params_dict.get('z', 0.0)
     A2 = params_dict.get('beta', 0.0)
     A3 = params_dict.get('alpha', 0.0)
@@ -276,9 +276,9 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     elif structure_type == 2:
         arr = np.concatenate([mon_i, mon_p2], axis=0)
     elif structure_type == 3:
-        arr = np.concatenate([mon_i, mon_p1, mon_p2, mon_t1, mon_t3], axis=0)
+        arr = np.concatenate([mon_i, mon_t1], axis=0)
     elif structure_type == 4:
-        arr = np.concatenate([mon_i, mon_p1, mon_p2, mon_t1, mon_t3], axis=0)
+        arr = np.concatenate([mon_i, mon_t3], axis=0)
     
     else:
         raise ValueError("structure_type must be 1, 2, 3 or 4")
@@ -291,7 +291,7 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
 def make_xyz(monomer_name: str, params_dict: dict, structure_type: int) -> str:
     name = monomer_name
     for key, val in params_dict.items():
-        if key in ['a', 'b', 'z']:
+        if key in ['a', 'b', 'z', 'bt1', 'bt2']:
             val = np.round(val, 2)
         elif key in ['beta', 'alpha']:
             val = int(val)
