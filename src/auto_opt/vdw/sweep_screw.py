@@ -146,7 +146,7 @@ def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: fl
                 R_a = vdw_R(axyz_c, axyz_t, 0.0)
                 R_a *= 2
                 # beta を beta 列に、R_a, R_b を a, b 列に当てはめ、Amber用のステータスも追加
-                all_rows.append([alpha, beta, round(R_a, 2), round(R_b, 2), round(R_b/2, 2), round(R_b/2, 2), z, "NotYet", "vdW_min"])
+                all_rows.append([alpha, beta, round(R_a, 1), round(R_b, 1), round(R_b/2, 1), round(R_b/2, 1), z, "NotYet", "vdW_min"])
 
     # ドライバがそのまま読み込めるヘッダー名に変更
     df = pd.DataFrame(all_rows, columns=['alpha', 'beta', 'a', 'b', 'bt1', 'bt2', 'z', 'status', 'structure_type'])
