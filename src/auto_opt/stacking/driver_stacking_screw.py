@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from auto_opt.stacking.make_io_stacking_screw import get_14_pairs_xyzR, get_xyzR_lines
-from auto_opt.amber.make_io_gene_beta_asym_anti import _guess_mol2_path
+from auto_opt.amber.make_io_gene_phi_asym_anti import _guess_mol2_path
 from auto_opt.utils import amber_get_E
 
 def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
