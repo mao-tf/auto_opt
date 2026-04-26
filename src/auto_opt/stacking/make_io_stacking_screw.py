@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from auto_opt.utils import Rod, R2atom
-from auto_opt.amber.make_io_gene_beta_asym_anti import _load_mol2_params, _guess_mol2_path
+from auto_opt.amber.make_io_gene_phi_asym_anti import _load_mol2_params, _guess_mol2_path
 from auto_opt.utils import amber_get_E
 
 ROOT = Path(__file__).resolve().parents[3]
