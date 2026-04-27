@@ -22,10 +22,11 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
     os.makedirs(out_dir, exist_ok=True)
     
     beta_str = f"{params_dict['beta']:.1f}".replace('.', 'p').replace('-', 'm')
+    z_str = f"{params_dict['z']:.1f}".replace('.', 'p').replace('-', 'm')
     cx_str = f"{params_dict['cx']:.2f}".replace('.', 'p').replace('-', 'm')
     cy_str = f"{params_dict['cy']:.2f}".replace('.', 'p').replace('-', 'm')
     cz_str = f"{params_dict['cz']:.2f}".replace('.', 'p').replace('-', 'm')
-    base_file_name = f"{monomer_name}_beta{beta_str}_cx{cx_str}_cy{cy_str}_cz{cz_str}"
+    base_file_name = f"{monomer_name}_beta{beta_str}_z{z_str}_cx{cx_str}_cy{cy_str}_cz{cz_str}"
 
     pairs = get_14_pairs_xyzR(monomer_name, params_dict)
     monomer_mol2 = str(_guess_mol2_path(monomer_name))
