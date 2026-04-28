@@ -64,13 +64,13 @@ def get_14_pairs_xyzR(monomer_name, params_dict):
     mon_t4 = get_monomer_xyzR(monomer_name, -a/2, -bt2, z, beta, -alpha1)
 
     # -α の分子 (monomer_array_c_) に対する 3ペア
-    mon_c_  = get_monomer_xyzR(monomer_name, cx, -cy, cz+z, beta, -alpha2)
-    mon_t1_ = get_monomer_xyzR(monomer_name, a/2, bt1, 0, beta, alpha1)
-    mon_t2_ = get_monomer_xyzR(monomer_name, a/2, -bt2, 0, beta, alpha1)
-    mon_t3_ = get_monomer_xyzR(monomer_name, -a/2, bt1, 0, beta, alpha1)
-    mon_t4_ = get_monomer_xyzR(monomer_name, -a/2, -bt2, 0, beta, alpha1)
+    mon_c_  = get_monomer_xyzR(monomer_name, a/2+cx, bt1+cy, cz+z, beta, -alpha2)
+    mon_i_  = get_monomer_xyzR(monomer_name, a/2, bt1, z, beta, -alpha1)
+    mon_t1_ = get_monomer_xyzR(monomer_name, a, b, 0, beta, alpha1)
+    mon_t2_ = get_monomer_xyzR(monomer_name, a, 0, 0, beta, alpha1)
+    mon_t3_ = get_monomer_xyzR(monomer_name, 0, b, 0, beta, alpha1)
+    mon_t4_ = get_monomer_xyzR(monomer_name, , 0, 0, beta, alpha1)
     
-
     pairs = [
         np.concatenate([mon_c, mon_i], axis=0),
         np.concatenate([mon_c, mon_p1], axis=0),
@@ -81,6 +81,7 @@ def get_14_pairs_xyzR(monomer_name, params_dict):
         np.concatenate([mon_c, mon_t2], axis=0),
         np.concatenate([mon_c, mon_t3], axis=0),
         np.concatenate([mon_c, mon_t4], axis=0),
+        np.concatenate([mon_c_, mon_i_], axis=0),
         np.concatenate([mon_c_, mon_t1_], axis=0),
         np.concatenate([mon_c_, mon_t2_], axis=0),
         np.concatenate([mon_c_, mon_t3_], axis=0),
