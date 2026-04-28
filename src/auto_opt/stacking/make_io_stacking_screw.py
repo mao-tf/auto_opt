@@ -65,10 +65,10 @@ def get_14_pairs_xyzR(monomer_name, params_dict):
 
     # -α の分子 (monomer_array_c_) に対する 3ペア
     mon_c_  = get_monomer_xyzR(monomer_name, cx, -cy, cz+z, beta, -alpha2)
-    mon_t1_ = get_monomer_xyzR(monomer_name, a/2, bt1, 0, beta, -alpha1)
-    mon_t2_ = get_monomer_xyzR(monomer_name, a/2, -bt2, 0, beta, -alpha1)
-    mon_t3_ = get_monomer_xyzR(monomer_name, -a/2, bt1, 0, beta, -alpha1)
-    mon_t4_ = get_monomer_xyzR(monomer_name, -a/2, -bt2, 0, beta, -alpha1)
+    mon_t1_ = get_monomer_xyzR(monomer_name, a/2, bt1, 0, beta, alpha1)
+    mon_t2_ = get_monomer_xyzR(monomer_name, a/2, -bt2, 0, beta, alpha1)
+    mon_t3_ = get_monomer_xyzR(monomer_name, -a/2, bt1, 0, beta, alpha1)
+    mon_t4_ = get_monomer_xyzR(monomer_name, -a/2, -bt2, 0, beta, alpha1)
     
 
     pairs = [
