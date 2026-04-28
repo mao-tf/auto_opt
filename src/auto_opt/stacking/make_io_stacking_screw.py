@@ -69,7 +69,7 @@ def get_14_pairs_xyzR(monomer_name, params_dict):
     mon_t1_ = get_monomer_xyzR(monomer_name, a, b, 0, beta, alpha1)
     mon_t2_ = get_monomer_xyzR(monomer_name, a, 0, 0, beta, alpha1)
     mon_t3_ = get_monomer_xyzR(monomer_name, 0, b, 0, beta, alpha1)
-    mon_t4_ = get_monomer_xyzR(monomer_name, , 0, 0, beta, alpha1)
+    mon_t4_ = get_monomer_xyzR(monomer_name, 0, 0, 0, beta, alpha1)
     
     pairs = [
         np.concatenate([mon_c, mon_i], axis=0),
