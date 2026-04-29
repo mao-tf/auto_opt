@@ -79,7 +79,7 @@ def read_14pairs_amber(auto_dir, base_file_name):
     14個のAMBER計算がすべて完了しているか確認し、エネルギーのリストを返す
     """
     E_list = []
-    for i in range(14):
+    for i in range(13):
         out_file = os.path.join(auto_dir, 'amber', f"{base_file_name}_p{i}.out")
         if not os.path.exists(out_file):
             return []
@@ -147,7 +147,7 @@ def main_process(args):
         finished_files = []
         for file_name, task in running_jobs.items():
             E_list = read_14pairs_amber(auto_dir, file_name)
-            if len(E_list) == 14:
+            if len(E_list) == 13:
                 E_total = sum(E_list)
                 beta = task['beta']
                 cx = task['cx']
@@ -159,7 +159,7 @@ def main_process(args):
                 
                 result_dict = task.copy()
                 result_dict['E'] = E_total
-                for i in range(14):
+                for i in range(13):
                     result_dict[f'E{i+1}'] = E_list[i]
                 result_dict['status'] = 'Done'
                 result_dict['file_name'] = file_name

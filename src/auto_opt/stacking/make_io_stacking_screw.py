@@ -81,7 +81,6 @@ def get_14_pairs_xyzR(monomer_name, params_dict):
         np.concatenate([mon_c, mon_t2], axis=0),
         np.concatenate([mon_c, mon_t3], axis=0),
         np.concatenate([mon_c, mon_t4], axis=0),
-        np.concatenate([mon_c_, mon_i_], axis=0),
         np.concatenate([mon_c_, mon_t1_], axis=0),
         np.concatenate([mon_c_, mon_t2_], axis=0),
         np.concatenate([mon_c_, mon_t3_], axis=0),
