@@ -16,7 +16,7 @@ from auto_opt.utils import amber_get_E
 
 def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
     """
-    14ペア分のmol2とtleap入力を作り、1つのジョブスクリプトとしてバックグラウンド実行する
+    13ペア分のmol2とtleap入力を作り、1つのジョブスクリプトとしてバックグラウンド実行する
     """
     out_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(out_dir, exist_ok=True)
@@ -28,6 +28,7 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
     cz_str = f"{params_dict['cz']:.2f}".replace('.', 'p').replace('-', 'm')
     base_file_name = f"{monomer_name}_beta{beta_str}_z{z_str}_cx{cx_str}_cy{cy_str}_cz{cz_str}"
 
+    # get_14_pairs_xyzR という名前ですが、中身は13ペアを出力する仕様です
     pairs = get_14_pairs_xyzR(monomer_name, params_dict)
     monomer_mol2 = str(_guess_mol2_path(monomer_name))
     frcmod_name = f"{monomer_name}_gaff2.frcmod"
@@ -57,7 +58,7 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
         cmds.append(f"tleap -f {file_name}_tleap.in > {file_name}_tleap.out")
         cmds.append(f"sander -O -i FF_calc.in -o {file_name}.out -p {file_name}.prmtop -c {file_name}.inpcrd -r {file_name}.rst7")
         
-    # ★ここに追加！：13個すべての計算が終わったら「.done」ファイルを作る
+    # すべての計算が終わったら完了マーク（.done）を作成
     done_mark = os.path.join(out_dir, f"{base_file_name}.done")
     cmds.append(f"touch {done_mark}")
 
@@ -77,23 +78,25 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
 
     return base_file_name
 
-
 def read_14pairs_amber(auto_dir, base_file_name):
+    """
+    AMBER計算が完了しているか確認し、エネルギーのリストを返す
+    """
     out_dir = os.path.join(auto_dir, 'amber')
     done_mark = os.path.join(out_dir, f"{base_file_name}.done")
     
-    # ★ まだジョブスクリプト自体が完了していない場合は待機
+    # ジョブ自体が完了していない場合は空リストを返す（待機）
     if not os.path.exists(done_mark):
         return []
         
     E_list = []
-    for i in range(13): # ★ 13に戻す！
+    for i in range(13): # 意図した通り13ペアで処理
         out_file = os.path.join(out_dir, f"{base_file_name}_p{i}.out")
         try:
             e = amber_get_E(out_file)[0]
             E_list.append(float(e))
         except:
-            # ★計算がエラー（近すぎて爆発した等）の場合はペナルティエネルギーを与える
+            # 計算がエラー（近すぎて爆発など）の場合はペナルティエネルギーを与える
             E_list.append(99999.0) 
     return E_list
 
@@ -127,10 +130,13 @@ def main_process(args):
     print("🚀 初期タスクのセットアップ中...")
     for _, row in df_init.iterrows():
         beta = np.round(row['beta'], 1)
+        z_vdw = np.round(row['z'], 1)      # zを取得
         cx = np.round(row['cx'], 1)
         cy = np.round(row['cy'], 1)
         cz_vdw = np.round(row['cz'], 1)
-        group_key = (beta, cx, cy)  # ← beta をキーに追加！
+        
+        # z を含む完全なグループキー
+        group_key = (beta, z_vdw, cx, cy)
         
         completed_czs[group_key] = {}
         queued_or_running_czs[group_key] = set()
@@ -155,13 +161,15 @@ def main_process(args):
             E_list = read_14pairs_amber(auto_dir, file_name)
             if len(E_list) == 13:
                 E_total = sum(E_list)
-                beta = task['beta']
-                cx = task['cx']
-                cy = task['cy']
-                cz = task['cz']
+                beta = np.round(task['beta'], 1)
+                z_vdw = np.round(task['z'], 1)
+                cx = np.round(task['cx'], 1)
+                cy = np.round(task['cy'], 1)
+                cz = np.round(task['cz'], 1)
                 
-                # 結果をメモリに保存（キーにbetaを含む）
-                completed_czs[(beta, cx, cy)][cz] = E_total
+                # 結果を保存
+                group_key = (beta, z_vdw, cx, cy)
+                completed_czs[group_key][cz] = E_total
                 
                 result_dict = task.copy()
                 result_dict['E'] = E_total
@@ -193,17 +201,19 @@ def main_process(args):
             else:
                 task_base = {k: v for k, v in df_init.loc[
                     (np.round(df_init['beta'], 1) == group_key[0]) &
-                    (np.round(df_init['cx'], 1) == group_key[1]) & 
-                    (np.round(df_init['cy'], 1) == group_key[2])
+                    (np.round(df_init['z'], 1) == group_key[1]) &
+                    (np.round(df_init['cx'], 1) == group_key[2]) & 
+                    (np.round(df_init['cy'], 1) == group_key[3])
                 ].iloc[0].to_dict().items() if k in fixed_keys}
                 
+                # インデックスのズレを修正（[2] が cx, [3] が cy）
                 if needs_down and cz_down not in queued_or_running_czs[group_key]:
-                    new_task = {'cx': group_key[1], 'cy': group_key[2], 'cz': cz_down, **task_base}
+                    new_task = {'cx': group_key[2], 'cy': group_key[3], 'cz': cz_down, **task_base}
                     job_queue.append(new_task)
                     queued_or_running_czs[group_key].add(cz_down)
                     
                 if needs_up and cz_up not in queued_or_running_czs[group_key]:
-                    new_task = {'cx': group_key[1], 'cy': group_key[2], 'cz': cz_up, **task_base}
+                    new_task = {'cx': group_key[2], 'cy': group_key[3], 'cz': cz_up, **task_base}
                     job_queue.append(new_task)
                     queued_or_running_czs[group_key].add(cz_up)
 
