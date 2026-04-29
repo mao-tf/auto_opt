@@ -57,6 +57,10 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
         cmds.append(f"tleap -f {file_name}_tleap.in > {file_name}_tleap.out")
         cmds.append(f"sander -O -i FF_calc.in -o {file_name}.out -p {file_name}.prmtop -c {file_name}.inpcrd -r {file_name}.rst7")
         
+    # ★ここに追加！：13個すべての計算が終わったら「.done」ファイルを作る
+    done_mark = os.path.join(out_dir, f"{base_file_name}.done")
+    cmds.append(f"touch {done_mark}")
+
     job_file = os.path.join(out_dir, f"job_{base_file_name}.sh")
     with open(job_file, 'w') as f:
         f.write("#!/bin/bash\n")
@@ -75,21 +79,23 @@ def exec_amber_job(auto_dir, monomer_name, params_dict, isTest=False):
 
 
 def read_14pairs_amber(auto_dir, base_file_name):
-    """
-    14個のAMBER計算がすべて完了しているか確認し、エネルギーのリストを返す
-    """
+    out_dir = os.path.join(auto_dir, 'amber')
+    done_mark = os.path.join(out_dir, f"{base_file_name}.done")
+    
+    # ★ まだジョブスクリプト自体が完了していない場合は待機
+    if not os.path.exists(done_mark):
+        return []
+        
     E_list = []
-    for i in range(13):
-        out_file = os.path.join(auto_dir, 'amber', f"{base_file_name}_p{i}.out")
-        if not os.path.exists(out_file):
-            return []
+    for i in range(13): # ★ 13に戻す！
+        out_file = os.path.join(out_dir, f"{base_file_name}_p{i}.out")
         try:
             e = amber_get_E(out_file)[0]
             E_list.append(float(e))
         except:
-            return [] 
+            # ★計算がエラー（近すぎて爆発した等）の場合はペナルティエネルギーを与える
+            E_list.append(99999.0) 
     return E_list
-
 
 def main_process(args):
     args.auto_dir = os.path.abspath(args.auto_dir)
