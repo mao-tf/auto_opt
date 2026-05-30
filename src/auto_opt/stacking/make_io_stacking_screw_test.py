@@ -51,7 +51,7 @@ def get_14_pairs_xyzR(monomer_name, params_dict):
     cy = float(params_dict.get('cy', 0.0))
     cz = float(params_dict.get('cz', 0.0))
 
-    # α の分子 (monomer_array_c) に対する 7ペア
+    # α の分子 (monomer_array_c) に対する 9ペア
     mon_c  = get_monomer_xyzR(monomer_name, cx, cy, cz, beta, alpha2)
     mon_i  = get_monomer_xyzR(monomer_name, 0, 0, 0, beta, alpha1)
     mon_p1 = get_monomer_xyzR(monomer_name, 0, b, 0, beta, alpha1)
@@ -63,7 +63,7 @@ def get_14_pairs_xyzR(monomer_name, params_dict):
     mon_t3 = get_monomer_xyzR(monomer_name, a/2, -bt2, z, beta, -alpha1)
     mon_t4 = get_monomer_xyzR(monomer_name, -a/2, -bt2, z, beta, -alpha1)
 
-    # -α の分子 (monomer_array_c_) に対する 3ペア
+    # -α の分子 (monomer_array_c_) に対する 9ペア
     mon_c_  = get_monomer_xyzR(monomer_name, a/2+cx, bt1+cy, cz+z, beta, -alpha2)
     mon_i_  = get_monomer_xyzR(monomer_name, a/2, bt1, z, beta, -alpha1)
     mon_p1_ = get_monomer_xyzR(monomer_name, a/2, b+bt1, z, beta, -alpha1)

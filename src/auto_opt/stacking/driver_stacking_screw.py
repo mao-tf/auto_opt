@@ -160,7 +160,7 @@ def main_process(args):
         for file_name, task in running_jobs.items():
             E_list = read_14pairs_amber(auto_dir, file_name)
             if len(E_list) == 13:
-                E_total = sum(E_list)
+                E_total = E_list[0]+E_list[1]+E_list[2]+E_list[3]+E_list[4]+(E_list[5]+E_list[6]+E_list[7]+E_lsit[8]+E_list[9]+E_list[10]+E_list[11]+E_list[12])/2
                 beta = np.round(task['beta'], 1)
                 z_vdw = np.round(task['z'], 1)
                 cx = np.round(task['cx'], 1)
