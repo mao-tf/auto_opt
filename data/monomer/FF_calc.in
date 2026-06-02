@@ -1,0 +1,7 @@
+Simple energy evaluation
+&cntrl
+  imin=1,       ! Do minimization mode (needed to evaluate energy)
+  maxcyc=0,     ! Do zero steps = evaluate energy only
+  ntb=0,        ! No periodic boundary conditions
+  cut=999.0,    ! No nonbonded cutoff (optional: set to 10.0 if needed)
+/
