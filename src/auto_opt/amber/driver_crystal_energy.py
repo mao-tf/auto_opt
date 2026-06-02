@@ -255,27 +255,38 @@ def run_all(
         )
         all_results.append(result)
 
+    # ── 相対エネルギーの計算（z=0 基準）───────────────────────────────
+    valid = [r for r in all_results if r["E_total"] is not None]
+    E_ref = valid[0]["E_total"] if valid else None   # 最小z値のE_totalを基準
+
     # ── サマリー表示 ──────────────────────────────────────────────────
     print(f"\n{'='*60}")
     print("  サマリー")
     print(f"{'='*60}")
+    ref_label = f"z={valid[0]['z']}" if valid else "N/A"
+    print(f"基準: {ref_label} の E_total = {E_ref:.4f} kcal/mol" if E_ref else "基準: N/A")
+    print()
     print(f"{'z':>6}  {'E_intra':>10}  {'E_inter1_full':>13}  "
-          f"{'E_inter1_half':>13}  {'E_inter2':>10}  {'E_total':>12}")
-    print("-" * 72)
+          f"{'E_inter1_half':>13}  {'E_inter2':>10}  {'E_total':>12}  {'ΔE_total':>10}")
+    print("-" * 85)
+    min_dE = min((r["E_total"] - E_ref for r in valid), default=None)
     for r in all_results:
         bd = r["breakdown"]
         if r["E_total"] is not None:
+            dE   = r["E_total"] - E_ref
+            mark = " ←最小" if abs(dE - min_dE) < 1e-6 else ""
             print(
                 f"{r['z']:>6.1f}  "
                 f"{bd['E_intra_sum']:>10.4f}  "
                 f"{bd['E_inter1_full_sum']:>13.4f}  "
                 f"{bd['E_inter1_half_sum']:>13.4f}  "
                 f"{bd['E_inter2_sum']:>10.4f}  "
-                f"{r['E_total']:>12.4f}"
+                f"{r['E_total']:>12.4f}  "
+                f"{dE:>+10.4f}{mark}"
             )
         else:
             print(f"{r['z']:>6.1f}  {'N/A':>10}  {'N/A':>13}  "
-                  f"{'N/A':>13}  {'N/A':>10}  {'N/A':>12}")
+                  f"{'N/A':>13}  {'N/A':>10}  {'N/A':>12}  {'N/A':>10}")
 
     # ── CSV 出力 ──────────────────────────────────────────────────────
     csv_path = os.path.join(out_dir, "summary.csv")
@@ -292,7 +303,7 @@ def run_all(
             + inter1_headers
             + inter2_headers
             + ["E_intra_sum", "E_inter1_full_sum", "E_inter1_half_sum",
-               "E_inter2_sum", "E_total_kcalmol"]
+               "E_inter2_sum", "E_total_kcalmol", "dE_total_kcalmol"]
         )
         for r in all_results:
             bd = r["breakdown"]
@@ -300,6 +311,7 @@ def run_all(
             def fmt(v):
                 return f"{v:.4f}" if v is not None else ""
 
+            dE = (r["E_total"] - E_ref) if (r["E_total"] is not None and E_ref is not None) else None
             row = (
                 [r["z"]]
                 + [fmt(v) for v in r["E_intra"]]
@@ -311,6 +323,7 @@ def run_all(
                     fmt(bd.get("E_inter1_half_sum")),
                     fmt(bd.get("E_inter2_sum")),
                     fmt(r["E_total"]),
+                    fmt(dE),
                 ]
             )
             writer.writerow(row)
