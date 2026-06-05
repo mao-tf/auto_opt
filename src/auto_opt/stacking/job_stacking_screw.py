@@ -10,6 +10,7 @@ qstat -f でノードの空き状況をリアルタイムに確認し、
 空いているノードに順次投入します。
 """
 
+import os
 import re
 import time
 import pandas as pd
