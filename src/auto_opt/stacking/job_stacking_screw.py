@@ -59,8 +59,9 @@ def pick_free_instance(
     prefer_queue: Optional[str] = None,
 ) -> Optional[tuple]:
     """空きキューインスタンスを1つ選んで (qname, qi) を返す。"""
-    order = list(MACHINE_SPEC.keys()) if not prefer_queue else \
-            [prefer_queue] + [q for q in MACHINE_SPEC.keys() if q != prefer_queue]
+    all_queues = list(MAX_PER_QUEUE.keys())  # ["gr1.q", "gr2.q"]
+    order = all_queues if not prefer_queue else \
+            [prefer_queue] + [q for q in all_queues if q != prefer_queue]
     for qname in order:
         if used_counts.get(qname, 0) >= MAX_PER_QUEUE[qname]:
             continue
