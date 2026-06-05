@@ -59,7 +59,7 @@ from auto_opt.amber.calc_pentamer_interaction import calc_interaction_energies
 # ─────────────────────────────────────────────────────────────────────
 
 # 例: DNTT_z_0.0_7.7_3.0_3.0_6.0_-10.0_25_intra.xyz
-_PAT = re.compile(r'.+_z_([\d.]+)_.+_(intra|inter1|inter2)\.xyz$')
+_PAT = re.compile(r'.+_z_(-?[\d.]+)_.+_(intra|inter1|inter2)\.xyz$')
 
 
 def parse_xyz_name(fname: str) -> Tuple[Optional[float], Optional[str]]:
