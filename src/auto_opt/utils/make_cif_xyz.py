@@ -44,7 +44,7 @@ MACHINE_SPEC = {
     "gr1": {"nproc": 40, "mem": "15GB"},
     "gr2": {"nproc": 52, "mem": "15GB"},
 }
-METHOD = "B3LYP/6-311G** EmpiricalDispersion=GD3BJ Counterpoise=2"
+METHOD = "PBEPBE/6-311G** EmpiricalDispersion=GD3BJ Counterpoise=2"
 CHARGE_MULT = "0 1 0 1 0 1"
 
 
