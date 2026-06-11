@@ -67,7 +67,7 @@ MACHINE_SPEC = {
     "gr1": {"nproc": 40, "mem": "15GB", "queue": "gr1.q"},
     "gr2": {"nproc": 52, "mem": "15GB", "queue": "gr2.q"},
 }
-METHOD = "PBEPBE/cc-pVTZ EmpiricalDispersion=GD3BJ Counterpoise=2"
+METHOD = "PBEPBE/6-311G** EmpiricalDispersion=GD3BJ Counterpoise=2"
 CHARGE_MULT = "0 1 0 1 0 1"   # 全体: 0,1  Fragment1: 0,1  Fragment2: 0,1
 
 
