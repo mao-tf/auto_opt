@@ -206,7 +206,7 @@ def make_inp_from_xyz(
 #  XYZ ディレクトリの一括処理
 # ─────────────────────────────────────────────────────────────────────
 
-_PAT = re.compile(r'.+_z_(-?[\d.]+)_(intra|inter1|inter2)\.xyz$')
+_PAT = re.compile(r'^.+_z_(-?[\d.]+).*_(intra|inter1|inter2)\.xyz$')
 
 def parse_xyz_name(fname: str) -> Tuple[Optional[float], Optional[str]]:
     m = _PAT.match(fname)
