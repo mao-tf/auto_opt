@@ -32,7 +32,7 @@ def extract_final_energy(out_path: str) -> Optional[float]:
 
 def run(qe_dir: str, output: str) -> None:
     qe_root = Path(qe_dir)
-    pat = re.compile(r'dntt_relax_(-?[\d.]+)\.out$')
+    pat = re.compile(r'dntt_relax_(-?[\d.]+)(?:_\w+)?\.out$')
 
     out_files = [f for f in qe_root.glob("dntt_relax_*.out") if pat.match(f.name)]
     if not out_files:
