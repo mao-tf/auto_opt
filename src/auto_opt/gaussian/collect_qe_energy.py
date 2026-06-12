@@ -51,9 +51,15 @@ def run(qe_dir: str, output: str) -> None:
         rows.append({"z": z, "E_Ry": energy_ry, "E_kcal_per_mol": energy_kcal})
         print(f"  z={z}: {energy_ry:.8f} Ry → {energy_kcal:.4f} kcal/mol")
 
+    ref = next((r["E_kcal_per_mol"] for r in rows if r["z"] == 0.0), None)
+    if ref is None:
+        print("  [WARNING] z=0 のデータがないため相対エネルギーは計算できません")
+    for r in rows:
+        r["dE_kcal_per_mol"] = (r["E_kcal_per_mol"] - ref) if ref is not None else ""
+
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["z", "E_Ry", "E_kcal_per_mol"])
+        writer = csv.DictWriter(f, fieldnames=["z", "E_Ry", "E_kcal_per_mol", "dE_kcal_per_mol"])
         writer.writeheader()
         writer.writerows(rows)
 
