@@ -261,8 +261,10 @@ def make_xyz(monomer_name: str, params_dict: dict, structure_type: int) -> str:
     for key, val in params_dict.items():
         if key in ['a', 'b', 'z', 'bt1', 'bt2']:
             val = np.round(val, 2)
-        elif key in ['beta', 'alpha', 'phi']:
+        elif key in ['beta', 'alpha']:
             val = int(val)
+        elif key == 'phi':
+            val = np.round(val, 1)
         name += f"_{key}_{val}"
     return name + f'_{structure_type}.xyz'
 
@@ -274,8 +276,10 @@ def make_xyz(monomer_name: str, params_dict: dict, structure_type: int) -> str:
 def get_file_name_from_dict(monomer_name: str, params_dict: dict, structure_type: int) -> str:
     name = monomer_name
     for key, val in params_dict.items():
-        if key in ['beta', 'alpha', 'phi']:
+        if key in ['beta', 'alpha']:
             val = int(val)
+        elif key == 'phi':
+            val = np.round(val, 1)
         name += f"_{key}_{val}"
     return name + f'_{structure_type}.mol2'
 
