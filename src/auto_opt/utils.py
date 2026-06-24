@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 import numpy as np
 from typing import List
 
@@ -33,6 +34,54 @@ def Rod(n: np.ndarray, theta_in: float) -> np.ndarray:
         [nx*ny*(1-c) + nz*s,  c + ny*ny*(1-c),     ny*nz*(1-c) - nx*s],
         [nx*nz*(1-c) - ny*s,  ny*nz*(1-c) + nx*s,  c + nz*nz*(1-c)   ],
     ])
+
+
+def read_xyz(path: str) -> List[List]:
+    """XYZ ファイルを読み込み [[x, y, z, symbol], ...] のリストを返す。"""
+    rows = []
+    with open(path) as f:
+        for line in f:
+            s = line.split()
+            if len(s) == 4:
+                try:
+                    x, y, z = float(s[1]), float(s[2]), float(s[3])
+                except ValueError:
+                    continue
+                rows.append([x, y, z, s[0]])
+    if not rows:
+        raise ValueError(f"XYZ 行が読み取れません: {path}  (形式: 'El x y z')")
+    return rows
+
+
+def vdw_R(axyz_1: List[List], axyz_2: List[List], theta_deg: float) -> float:
+    """
+    剛体球モデルで分子2の接触距離を返す。
+    theta_deg: eR 方向（ab面内の接触方向角, degree）
+    戻り値: 分子2を eR 方向に押した時の最小接触距離 (Å)。接触不可なら 0.0。
+    """
+    R1 = np.asarray([[x, y, z] for x, y, z, _ in axyz_1], float)
+    R2 = np.asarray([[x, y, z] for x, y, z, _ in axyz_2], float)
+    r1 = np.asarray([vdw_radius(a[3]) for a in axyz_1], float)
+    r2 = np.asarray([vdw_radius(a[3]) for a in axyz_2], float)
+
+    ct = math.cos(math.radians(theta_deg))
+    st = math.sin(math.radians(theta_deg))
+    eR = np.array([ct, st, 0.0], float)
+
+    D      = R2[None, :, :] - R1[:, None, :]
+    R12b   = D @ eR
+    R12a2  = (D * D).sum(axis=2) - R12b ** 2
+
+    rad_sum    = r1[:, None] + r2[None, :]
+    rad_sum_sq = rad_sum ** 2
+    mask = R12a2 < rad_sum_sq
+
+    if not np.any(mask):
+        return 0.0
+
+    sq        = rad_sum_sq[mask] - R12a2[mask]
+    twoR_need = np.maximum(-R12b[mask] + np.sqrt(sq), 0.0)
+    return float(np.max(twoR_need))
 
 
 def amber_get_E(filepath: str) -> List[float]:

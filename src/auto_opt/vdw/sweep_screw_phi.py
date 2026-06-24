@@ -18,27 +18,11 @@ Usage Example:
    python -m auto_opt.vdw.sweep_screw_phi ... --select b-stack
 """
 from __future__ import annotations
-import math, argparse, pathlib
+import argparse, pathlib
 from typing import List, Tuple
 import numpy as np
 import pandas as pd
-from auto_opt.utils import Rod, vdw_radius
-
-# --- IO ----------------------------------------------------------------------
-def read_xyz(path: str) -> List[List[object]]:
-    rows = []
-    with open(path) as f:
-        for line in f:
-            s = line.split()
-            if len(s) == 4:
-                try:
-                    x, y, z = float(s[1]), float(s[2]), float(s[3])
-                except ValueError:
-                    continue
-                rows.append([x, y, z, s[0]])
-    if not rows:
-        raise ValueError(f"No XYZ rows parsed from {path}. Expect lines: 'El x y z'")
-    return rows
+from auto_opt.utils import Rod, vdw_radius, read_xyz, vdw_R
 
 # --- 幾何 -------------------------------------------------------------------
 # 回転順: phi(x軸) → alpha(z軸) → beta(x軸)
@@ -62,32 +46,6 @@ def parallel_pair(base_axyz, Rx_phi, Rz, Rx):
         axyz_1.append([rot[0], rot[1], rot[2], sym])
         axyz_2.append([rot[0], rot[1], rot[2], sym])
     return axyz_1, axyz_2
-
-# --- 接触半径 ----------------------------------------------------------------
-def vdw_R(axyz_1, axyz_2, theta_deg: float) -> float:
-    R1 = np.asarray([[x, y, z] for x, y, z, _ in axyz_1], float)
-    R2 = np.asarray([[x, y, z] for x, y, z, _ in axyz_2], float)
-    r1 = np.asarray([vdw_radius(a[3]) for a in axyz_1], float)
-    r2 = np.asarray([vdw_radius(a[3]) for a in axyz_2], float)
-
-    ct, st = math.cos(math.radians(theta_deg)), math.sin(math.radians(theta_deg))
-    eR = np.array([ct, st, 0.0], float)
-
-    D = R2[None, :, :] - R1[:, None, :]
-    R12b = D @ eR
-    D2 = (D * D).sum(axis=2)
-    R12a2 = D2 - R12b * R12b
-    rad_sum = r1[:, None] + r2[None, :]
-    rad_sum_sq = rad_sum ** 2
-    mask = R12a2 < rad_sum_sq
-
-    if not np.any(mask):
-        return 0.0
-
-    sq = rad_sum_sq[mask] - R12a2[mask]
-    twoR_need = -R12b[mask] + np.sqrt(sq)
-    twoR_need = np.maximum(twoR_need, 0.0)
-    return float(np.max(twoR_need))
 
 
 # --- スイープ本体 ------------------------------------------------------------
