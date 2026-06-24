@@ -104,11 +104,11 @@ def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: fl
 
     z_vals = [round(z, 1) for z in np.arange(z_min, z_max + 1e-9, z_step)]
     phis = [float(p) for p in np.arange(phi_min, phi_max + 1e-9, phi_step)]
-    thetas = [float(t) for t in np.arange(0, 91, theta_step)]
-    
-    # Pre-calculate trig values
-    cosb = {b: math.cos(math.radians(b)) for b in thetas}
-    sinb = {b: math.sin(math.radians(b)) for b in thetas}
+    contact_angles = [float(t) for t in np.arange(0, 91, theta_step)]
+
+    # Pre-calculate trig values for each contact direction angle
+    cos_ca = {ca: math.cos(math.radians(ca)) for ca in contact_angles}
+    sin_ca = {ca: math.sin(math.radians(ca)) for ca in contact_angles}
 
     base_axyz = read_xyz(monomer_path)
     ex = np.array([1., 0., 0.])
@@ -134,19 +134,19 @@ def sweep(monomer_path: str, out_dir: str, z_min:float, z_max: float, z_step: fl
                 R_b = vdw_R(axyz_c, axyz_b, 90.0)
                 axyz_1, axyz_2 = t_shaped_pair(base_axyz, Rx, Rz, z)
                 
-                for beta in thetas:
-                    R_clps = vdw_R(axyz_1, axyz_2, beta)
-                    ca = R_a - 2.0 * R_clps * cosb[beta]
-                    cb = R_b - 2.0 * R_clps * sinb[beta]
+                for theta_c in contact_angles:
+                    R_clps = vdw_R(axyz_1, axyz_2, theta_c)
+                    ca = R_a - 2.0 * R_clps * cos_ca[theta_c]
+                    cb = R_b - 2.0 * R_clps * sin_ca[theta_c]
                     ok = (ca <= eps_a) and (cb <= eps_b)
-                    all_rows.append([alpha, phi, beta, z, R_clps, ok])
+                    all_rows.append([alpha, phi, theta_c, z, R_clps, ok])
                 
                 count += 1
                 if count % 1000 == 0:
                     print(f"Processed {count}/{total_iter}...")# Print progress every 1,000 iterations to monitor status.
 
-    df = pd.DataFrame(all_rows, columns=['alpha','phi','beta','z','R_clps','TorF'])
-    df = df.sort_values(['z','alpha','phi','beta']).reset_index(drop=True)
+    df = pd.DataFrame(all_rows, columns=['alpha','phi','theta_c','z','R_clps','TorF'])
+    df = df.sort_values(['z','alpha','phi','theta_c']).reset_index(drop=True)
     out_csv = out / f"vdW_r_contact_{monomer_name}.csv"
     df.to_csv(out_csv, index=False)
     print(f"Wrote {out_csv} (n={len(df)})")

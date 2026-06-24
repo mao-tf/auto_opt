@@ -24,11 +24,11 @@ def _as_bool_series(s: pd.Series) -> pd.Series:
     return s.astype(str).str.lower().isin(TRUE_LIKE)
 
 def _compute_geo(df: pd.DataFrame) -> pd.DataFrame:
-    """a,b,value(=a*b) を追加（beta は度数前提）"""
-    beta_rad = np.deg2rad(pd.to_numeric(df["beta"], errors="coerce"))
+    """a,b,value(=a*b) を追加（theta_c は度数前提）"""
+    theta_c_rad = np.deg2rad(pd.to_numeric(df["theta_c"], errors="coerce"))
     R = pd.to_numeric(df["R_clps"], errors="coerce")
-    a = 2.0 * R * np.cos(beta_rad)
-    b = 2.0 * R * np.sin(beta_rad)
+    a = 2.0 * R * np.cos(theta_c_rad)
+    b = 2.0 * R * np.sin(theta_c_rad)
     value = a * b
     return df.assign(a=a, b=b, value=value)
 
@@ -75,7 +75,7 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
     accept_all = "all" in target_set
 
     df = pd.read_csv(vdw_csv)
-    need = {"alpha", "phi", "beta", "z", "R_clps", "TorF"}
+    need = {"alpha", "phi", "theta_c", "z", "R_clps", "TorF"}
     miss = [c for c in need if c not in df.columns]
     if miss:
         raise ValueError(f"必要列が不足: {miss} in {vdw_csv}")
@@ -85,7 +85,7 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
 
     # グループは (z, alpha, phi) ごとに評価
     for (z, alpha, phi), g in df.groupby(["z", "alpha", "phi"], sort=False):
-        g = g.sort_values("beta").reset_index(drop=True)
+        g = g.sort_values("theta_c").reset_index(drop=True)
         mask = _as_bool_series(g["TorF"]).to_numpy()
         if not mask.any():
             continue
@@ -94,8 +94,8 @@ def extract_init(vdw_csv: str, out_csv: str, round_ab: int = 1, minima: bool = F
             candidates = {}
 
             # 1. 端点判定
-            candidates[run[0]] = "b-stack"   # beta最小 -> b最小
-            candidates[run[-1]] = "a-stack"  # beta最大 -> a最小
+            candidates[run[0]] = "b-stack"   # theta_c 最小 -> b 最小
+            candidates[run[-1]] = "a-stack"  # theta_c 最大 -> a 最小
 
             # 2. 局所最小判定
             if minima:
