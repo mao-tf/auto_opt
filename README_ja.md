@@ -154,6 +154,7 @@ auto_opt/
     ├── vdw/              # Step 1-2: VdW スウィープ・初期点抽出
     ├── amber/            # Step 3: Amber 力場最適化
     ├── gaussian/         # Step 4-5: 局所最小抽出・DFT ジョブ投入
+    ├── plot/             # 可視化ツール（エネルギーマップ・XYZ 出力）
     └── utils.py          # 共通ユーティリティ（回転行列・VdW 半径など）
 ```
 
@@ -167,6 +168,56 @@ auto_opt/
 | `a`, `b` | 結晶格子定数（Å） |
 | `z` | glide の場合: t ダイマーの積層方向オフセット（Å） |
 | `bt1`, `bt2` | screw の場合: t1/t3 ダイマーの b 方向オフセット（Å） |
+
+## 可視化ツール
+
+### エネルギーマップ（Step 4 完了後）
+
+`filtered_step1.csv` の結果を任意の2パラメータで2Dヒートマップ表示する。
+
+```bash
+# phi vs z のエネルギーマップ（alpha=65 で固定）
+python -m auto_opt.plot.energy_map \
+    --csv  runs/DNTT_glide/filtered_step1.csv \
+    --x    phi  --y z \
+    --fix  alpha=65 \
+    --out  energy_phi_z.png
+
+# screw: alpha vs phi のマップ（beta=0, z=1.5 で固定）
+python -m auto_opt.plot.energy_map \
+    --csv  runs/DNTT_screw/filtered_step1.csv \
+    --x    phi  --y alpha \
+    --fix  beta=0 z=1.5 \
+    --out  energy_alpha_phi.png
+```
+
+最低エネルギー点に星印、等高線つきで出力される。`--out` を省略すると画面表示。
+
+### 分子構造 XYZ 出力（VESTA・Molden 等で可視化）
+
+特定パラメータの結晶構造を `.xyz` ファイルで出力する。
+
+```bash
+# glide: phi=-10 の構造を 2×2 タイルで出力
+python -m auto_opt.plot.export_xyz \
+    --csv     runs/DNTT_glide/filtered_step1.csv \
+    --monomer DNTT \
+    --alpha 65 --phi -10 --z 1.5 \
+    --tiles 2 2 \
+    --out  DNTT_phi-10.xyz
+
+# screw
+python -m auto_opt.plot.export_xyz \
+    --csv     runs/DNTT_screw/filtered_step1.csv \
+    --monomer DNTT \
+    --alpha 65 --beta 0 --phi -10 --z 1.5 \
+    --out  DNTT_screw_phi-10.xyz
+```
+
+`--tiles na nb` でユニットセルを a/b 方向に繰り返せる（デフォルト 2×2）。
+対称性（glide/screw）は CSV の列から自動判定する。
+
+---
 
 ## DFT 計算設定
 

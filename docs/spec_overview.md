@@ -263,9 +263,11 @@ flow/
 | ✅ 完了 | 中 | `vdw_R` のバグ修正 | `sweep_phi.py` を mask 方式に統一（接触不可ペアの誤計上を修正） |
 | ✅ 完了 | 中 | screw VdW sweep に構造分類を追加 | `sweep_screw_phi.py` に a-stack / b-stack 計算と `--select` オプションを追加 |
 | ✅ 完了 | 中 | `utils.py` の整理 | 未使用関数削除・型ヒント追加・R2atom float比較修正 |
-| ✅ 完了 | 低 | README.md 作成 | インストール・使い方（英語） |
+| ✅ 完了 | 低 | README.md 作成 | インストール・使い方（英語・日本語） |
+| ✅ 完了 | 低 | pyproject.toml 整備 | 依存パッケージ明記（numpy/pandas/scipy/pyyaml） |
+| ✅ 完了 | 中 | 可視化ツール追加 | `plot/energy_map.py`（2Dヒートマップ）, `plot/export_xyz.py`（構造XYZ出力） |
 | 🔲 未着手 | 中 | 環境設定ファイルの導入 | `~/.auto_opt.yaml` でパスを外出し（詳細は §6 参照） |
-| 🔲 未着手 | 低 | pyproject.toml 整備 | 依存パッケージ明記 |
+| 🔲 未着手 | 中 | オーケストレーター | Step 0→4 を1コマンドで実行する `run.py` |
 
 ---
 
