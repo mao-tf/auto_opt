@@ -251,14 +251,65 @@ flow/
 
 ## 5. 今後の作業リスト
 
-| 優先度 | 作業 | 内容 |
-|--------|------|------|
-| 高 | `extract_minima.py` 新規作成 | `pipeline_phi.py` / `pipeline_screw_phi.py` の `extract_from_step1()` を独立化 |
-| 高 | driver への自動呼び出し追加 | `driver_gene_phi.py`, `driver_screw_phi.py` の最後で `extract_minima.py` を実行 |
-| 高 | `pipeline_phi.py` の整理 | 抽出部分を除き、Gaussian 投入のみに |
-| 高 | `pipeline_screw_phi.py` の整理 | 同上 |
-| 中 | legacy フォルダ作成・移動 | 旧バージョンファイルを整理 |
-| 中 | ハードコードパスの除去 | `os.environ['HOME']` 等をオプション引数化 |
-| 中 | `utils.py` の整理 | 共通関数を整備 |
-| 低 | README.md 作成 | インストール・使い方 |
-| 低 | pyproject.toml 整備 | 依存パッケージ明記 |
+| 状態 | 優先度 | 作業 | 内容 |
+|------|--------|------|------|
+| ✅ 完了 | 高 | `extract_minima.py` 新規作成 | `pipeline_phi.py` / `pipeline_screw_phi.py` の `extract_from_step1()` を独立化 |
+| ✅ 完了 | 高 | driver への自動呼び出し追加 | `driver_gene_phi.py`, `driver_screw_phi.py` の最後で `extract_minima.py` を実行 |
+| ✅ 完了 | 高 | `pipeline_phi.py` の整理 | 抽出部分を除き、Gaussian 投入のみに |
+| ✅ 完了 | 高 | `pipeline_screw_phi.py` の整理 | 同上 |
+| ✅ 完了 | 中 | legacy フォルダ作成・移動 | 旧バージョンファイルを整理 |
+| 🔲 未着手 | 中 | 環境設定ファイルの導入 | `~/.auto_opt.yaml` でパスを外出し（詳細は §6 参照） |
+| 🔲 未着手 | 中 | `os.environ['HOME']` の除去 | `driver_stacking_screw_phi.py` 等のハードコードを削除 |
+| 🔲 未着手 | 中 | `utils.py` の整理 | 共通関数を整備 |
+| 🔲 未着手 | 低 | README.md 作成 | インストール・使い方 |
+| 🔲 未着手 | 低 | pyproject.toml 整備 | 依存パッケージ明記 |
+
+---
+
+## 6. 環境移植性の方針
+
+他の研究機関でも使えるようにするため、環境依存箇所を段階的に取り除く。
+
+### 依存の種類と対応方針
+
+| 種類 | 現状の問題 | 対応方針 |
+|------|-----------|---------|
+| ハードコードパス | `os.environ['HOME'] = '/home/miyoshi'` など | 即削除（`Path.home()` で代替） |
+| ソフトウェアパス | `source ~/anaconda3/...`, `conda activate amber`, `export g16root=/home/g03` | 設定ファイルで外出し |
+| ジョブスケジューラー | SGE (`qsub`/`qstat`) 固有 | まずはSGEのみ対応、将来スケジューラー抽象化 |
+
+### フェーズ 1（近いうち）: 設定ファイルの導入
+
+ユーザーが一度だけ書く設定ファイル `~/.auto_opt.yaml`：
+
+```yaml
+amber:
+  conda_init: ~/anaconda3/etc/profile.d/conda.sh  # conda の初期化スクリプト
+  conda_env: amber                                  # conda 環境名
+
+gaussian:
+  g16root: /home/g03                               # Gaussian インストール先
+  scrdir: /scr/$JOB_ID                             # 一時ファイル置き場
+
+scheduler:
+  type: sge                                         # sge / slurm / local
+  queues:
+    - name: gr1.q
+      nproc: 40
+    - name: gr2.q
+      nproc: 52
+  max_concurrent: 6
+```
+
+コードはこのファイルを起動時に読み込み、ジョブスクリプトの中身を動的に生成する。
+
+### フェーズ 2（将来）: スケジューラー抽象化
+
+```
+SchedulerBase
+├── SGEScheduler   (qsub / qstat)   ← 現状
+├── SLURMScheduler (sbatch / squeue) ← 将来
+└── LocalScheduler (subprocess並列)  ← ローカル実行用
+```
+
+設定ファイルの `scheduler.type` で切り替え。
