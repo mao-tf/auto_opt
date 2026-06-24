@@ -62,7 +62,7 @@ def get_xyzR_lines(xyzR_array: np.ndarray, file_description: str, machine_type: 
     header = [
         f'%mem=15GB\n',
         f'%nproc={mp_num}\n',
-        '#P B3LYP/6-311G** EmpiricalDispersion=GD3 Counterpoise=2\n',
+        '#P PBEPBE/6-311G** EmpiricalDispersion=GD3BJ Counterpoise=2\n',
         '\n',
         file_description + '\n',
         '\n',
