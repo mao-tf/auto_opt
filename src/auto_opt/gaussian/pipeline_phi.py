@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-dft_pipeline.py
+pipeline_phi.py  ―  映進対称 (glide) Gaussian DFT 投入スクリプト
 
-- 抽出: step1.csv から (alpha,z) ごとに (a,b) の局所最小を抽出 → filtered_step1.csv
-python -m auto_opt.gaussian.pipeline_phi --auto-dir runs/ANT_test --monomer ANT --extract-only
-- 投入: filtered_step1.csv を読み、各行(alpha,a,b,z)について a1/b1/t1 の 3ダイマーを 1つの .inp にし qsub
-python -m auto_opt.gaussian.pipeline_phi --auto-dir runs/ANT_test --monomer ANT --submit-only
-- モード: 抽出のみ / 投入のみ / 両方
+filtered_step1.csv（extract_minima.py で生成）を読み込み、
+各行 (alpha, phi, a, b, z) について a/b/t の 3 ダイマーを 1 つの .inp にまとめ
+SGE に qsub する。
 
-filtered_step1.csvを作るところでstatus(Done,InProgress,NotYet)行を作って
-driver.csvを作っている最中からpipelineを回してfiltered_step1.csvを作ってNotYetのものだけを流せるようにしたい。
+Usage:
+  python -m auto_opt.gaussian.pipeline_phi \
+      --auto-dir runs/DNTT \
+      --monomer  DNTT
+
+局所最小の抽出は gaussian/extract_minima.py --symmetry glide を使うこと。
 """
 
 from __future__ import annotations
@@ -21,7 +23,6 @@ import numpy as np
 import pandas as pd
 from auto_opt.utils import Rod, R2atom
 
-# 変更: デフォルトのモノマーディレクトリ
 MONOMER_DIR = os.path.expanduser("~/Working/auto_opt/data/monomer")
 
 # Gaussian 実行設定
@@ -30,10 +31,6 @@ MACHINE_SPEC = {
     2: {"queue": "gr2.q", "nproc": 52},
 }
 MAX_PARALLEL = {1: 3, 2: 3}  # 各 machine の並列スロット
-
-# 近傍判定の刻み（step1.csv の a,b が 0.1 刻み前提ならココも 0.1）
-STEP_A = 0.1
-STEP_B = 0.1
 
 # =========================================================
 #                   幾何生成ユーティリティ
@@ -197,106 +194,6 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: Dict[str,float], mac
     return log_file_name
 
 # =========================================================
-#                   抽出（局所最小）
-# =========================================================
-
-def _neighbors(a: float, b: float) -> List[Tuple[float,float]]:
-    da, db = STEP_A, STEP_B
-    offs = [( da,0),(-da,0),(0,db),(0,-db),(da,db),(da,-db),(-da,db),(-da,-db)]
-    return [(round(a+x,3), round(b+y,3)) for x,y in offs]
-
-def _is_local_min(a: float, b: float, e: float, grid: Dict[Tuple[float,float], float]) -> bool:
-    nb = [grid.get((round(ax,3), round(bx,3))) for (ax,bx) in _neighbors(a,b)]
-    nb = [v for v in nb if v is not None]
-    if not nb:  # 端点は除外
-        return False
-    return (all(e <= v for v in nb)) and any(e < v for v in nb)
-
-def _read_step1_auto(step1_csv: str, auto_dir: str | Path | None) -> pd.DataFrame:
-    """
-    - step1_csv が実在すればそれだけ読む（旧仕様）。
-    - 無ければ auto_dir 以下のサブディレクトリから step1.csv を集めて結合。
-    """
-    p = Path(step1_csv)
-    if p.is_file():
-        # 旧仕様そのまま
-        return pd.read_csv(p)
-
-    if auto_dir is None:
-        raise FileNotFoundError(f"step1.csv not found: {p}")
-
-    root = Path(auto_dir)
-    dfs = []
-    for sub in sorted(root.iterdir()):
-        if not sub.is_dir():
-            continue
-        p2 = sub / "step1.csv"
-        if p2.is_file():  ## サブディレクトリの中にstep1.csvが存在したら
-            dfs.append(pd.read_csv(p2))
-
-    if not dfs:
-        raise FileNotFoundError(
-            f"step1.csv が見つからない: {p} も無いし {root}/*/step1.csv も無い"
-        )
-
-    df_all = pd.concat(dfs, ignore_index=True)
-    return df_all
-
-def extract_from_step1(step1_csv: str, out_csv: str, auto_dir: str | None = None) -> pd.DataFrame:
-    """
-    step1.csv (列: alpha/またはtheta, a, b, z, E[, E1, E2, E3], status) から
-    (alpha,z) ごとに (a,b) の局所最小を抽出し、E, E1, E2, E3 も含めて out_csv へ。
-    """
-    df = _read_step1_auto(step1_csv, auto_dir)
-
-    need_base = {'alpha','phi','a','b','z','E','status'}
-    missing = [c for c in need_base if c not in df.columns]
-    if missing:
-        raise ValueError(f"step1.csv 欠落列: {missing}")
-
-    energy_cols = [c for c in ['E','E1','E2','E3'] if c in df.columns]
-
-    df = df.copy()
-    df = df[df['status'].astype(str).str.lower() == 'done']
-    if df.empty:
-        raise ValueError("Done 行がない（まず Amber を完了させる）")
-
-    # 型整形
-    for c in ['a','b','z'] + energy_cols:
-        df[c] = pd.to_numeric(df[c], errors='coerce')
-    df = df.dropna(subset=['a','b','z','E'])
-
-    # 同一点が複数ある場合は E 最小を採用
-    df = df.sort_values('E').drop_duplicates(subset=['alpha','phi','a','b','z'], keep='first')
-
-    rows = []
-    for (alpha, phi, z), g in df.groupby(['alpha','phi','z']):
-        grid = {(round(r.a,3), round(r.b,3)): float(r.E) for r in g.itertuples(index=False)}
-        for r in g.itertuples(index=False):
-            a, b, e = float(r.a), float(r.b), float(r.E)
-            if _is_local_min(a, b, e, grid):
-                rec = {
-                    'alpha': float(alpha),
-                    'phi': float(phi),
-                    'a': round(a,1),
-                    'b': round(b,1),
-                    'z': float(z),
-                }
-                for c in energy_cols:
-                    rec[c] = float(getattr(r, c))
-                rows.append(rec)
-
-    if not rows:
-        raise ValueError("局所最小が見つからない（グリッド刻みや Done 行を確認）")
-
-    out_cols = ['alpha','phi','a','b','z'] + energy_cols
-    out = pd.DataFrame(rows)[out_cols].drop_duplicates().sort_values(['z','alpha','phi','a','b']).reset_index(drop=True)
-    Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(out_csv, index=False)
-    print(f"[extract] filtered minima -> {out_csv} (n={len(out)})")
-    return out
-
-# =========================================================
 #                   投入（qsub）
 # =========================================================
 
@@ -354,31 +251,26 @@ def submit_from_candidates(auto_dir: str, monomer: str, cand_csv: str,
 def main():
     global MONOMER_DIR
 
-    ap = argparse.ArgumentParser(description="step1.csv の局所最小抽出 & 3ダイマーDFT投入（Gaussian）")
-    ap.add_argument("--auto-dir", required=True, help="作業ディレクトリ（step1.csv / gaussian/ がここ）")
-    ap.add_argument("--monomer", required=True, help="例: PFA")
-    ap.add_argument("--step1-csv", default=None, help="既定: <auto-dir>/step1.csv")
-    ap.add_argument("--out-csv",   default=None, help="既定: <auto-dir>/filtered_step1.csv")
-    ap.add_argument("--monomer-dir", default=MONOMER_DIR, help="モノマーCSVディレクトリ（既定: 環境既定パス）")
-    ap.add_argument("--extract-only", action="store_true", help="抽出のみ行い、投入はしない")
-    ap.add_argument("--submit-only",  action="store_true", help="既存 filtered_step1.csv から投入のみ行う（抽出はしない）")
-    ap.add_argument("--no-throttle",  action="store_true", help="qstat を見ての待機をしない（即投げ）")
+    ap = argparse.ArgumentParser(
+        description="filtered_step1.csv から映進 (glide) 3ダイマー Gaussian ジョブを投入する"
+    )
+    ap.add_argument("--auto-dir",    required=True, help="作業ディレクトリ（gaussian/ がここに作られる）")
+    ap.add_argument("--monomer",     required=True, help="モノマー名（例: DNTT）")
+    ap.add_argument("--cand-csv",    default=None,  help="既定: <auto-dir>/filtered_step1.csv")
+    ap.add_argument("--monomer-dir", default=MONOMER_DIR, help="モノマーCSVディレクトリ")
+    ap.add_argument("--no-throttle", action="store_true",  help="qstat を見ての待機をしない（即投げ）")
+    ap.add_argument("--dry-run",     action="store_true",  help=".inp/.r1 を生成するが qsub はしない")
     args = ap.parse_args()
 
-    # パスの解決
     MONOMER_DIR = os.path.expanduser(args.monomer_dir)
-    auto_dir = args.auto_dir
-    step1_csv = args.step1_csv or str(Path(auto_dir) / "step1.csv")
-    out_csv   = args.out_csv   or str(Path(auto_dir) / "filtered_step1.csv")
+    auto_dir  = args.auto_dir
+    cand_csv  = args.cand_csv or str(Path(auto_dir) / "filtered_step1.csv")
 
-    if args.extract_only and args.submit_only:
-        raise SystemExit("extract-only と submit-only は同時指定できない")
-
-    if not args.submit_only:
-        extract_from_step1(step1_csv, out_csv, auto_dir=auto_dir)
-
-    if not args.extract_only:
-        submit_from_candidates(auto_dir, args.monomer, out_csv, submit=True, throttle=not args.no_throttle)
+    submit_from_candidates(
+        auto_dir, args.monomer, cand_csv,
+        submit=not args.dry_run,
+        throttle=not args.no_throttle,
+    )
 
 if __name__ == "__main__":
     main()
