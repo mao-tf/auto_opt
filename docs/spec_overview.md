@@ -266,8 +266,9 @@ flow/
 | ✅ 完了 | 低 | README.md 作成 | インストール・使い方（英語・日本語） |
 | ✅ 完了 | 低 | pyproject.toml 整備 | 依存パッケージ明記（numpy/pandas/scipy/pyyaml） |
 | ✅ 完了 | 中 | 可視化ツール追加 | `plot/energy_map.py`（2Dヒートマップ）, `plot/export_xyz.py`（構造XYZ出力） |
+| ✅ 完了 | 中 | オーケストレーター | `run.py` + `run_config.yaml` で Step 1→4 を1コマンド実行。`--stop-after`/`--start-from` で段階実行も可 |
 | 🔲 未着手 | 中 | 環境設定ファイルの導入 | `~/.auto_opt.yaml` でパスを外出し（詳細は §6 参照） |
-| 🔲 未着手 | 中 | オーケストレーター | Step 0→4 を1コマンドで実行する `run.py` |
+| 🔲 未着手 | 低 | GUI | パラメータ設定・エネルギーマップのインタラクティブ操作（将来計画） |
 
 ---
 
