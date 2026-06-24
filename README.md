@@ -15,7 +15,7 @@ Given a monomer XYZ file, this tool sweeps van der Waals contact geometries, opt
 
 | Software | Purpose |
 |----------|---------|
-| Python ≥ 3.10 | Runtime |
+| Python ≥ 3.8 | Runtime |
 | [Amber](https://ambermd.org/) (GAFF2, sander, tleap, antechamber) | Force field optimization |
 | [Gaussian 16](https://gaussian.com/) | DFT single-point energy |
 | SGE job scheduler (`qsub` / `qstat`) | HPC job submission |
