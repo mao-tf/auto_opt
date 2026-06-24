@@ -11,6 +11,7 @@
 3. b-stack と local_min のみ出力
    python -m auto_opt.vdw.extract_init_phi --vdw-csv runs//vdW_r_contact_monomer.csv --out runs//step1_init_params.csv --minima --select b-stack local_min
 """
+from __future__ import annotations
 import argparse
 import numpy as np
 import pandas as pd
