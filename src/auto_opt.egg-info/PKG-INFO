@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: auto-opt
-Version: 0.0.1
-Summary: Molecular crystal auto-optimization pipeline
-Requires-Python: >=3.10
-Description-Content-Type: text/markdown
-Requires-Dist: numpy
-Requires-Dist: pandas
