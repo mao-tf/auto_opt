@@ -18,11 +18,14 @@ AMBER_REF = DATA / "amber_ref"
 RES = Path(__file__).resolve().parent / "resources"
 
 fixed_param_keys  = ['alpha', 'beta', 'z', 'phi']
-opt_param_keys_1  = ['a']
-opt_param_keys_2  = ['b']
-opt_param_keys_3  = ['a', 'bt1']
-opt_param_keys_4  = ['a', 'bt2']
 all_keys          = ['alpha', 'beta', 'z', 'phi', 'a', 'b', 'bt1', 'bt2']
+# 各ダイマーの識別キー: 平行移動に z が出てこないダイマーは z を含まない
+DIMER_KEYS = {
+    1: ['alpha', 'beta', 'phi', 'a'],            # a-dimer: 平行移動 (a, 0, 0) → z 無依存
+    2: ['alpha', 'beta', 'phi', 'b'],            # b-dimer: 平行移動 (0, b, 0) → z 無依存
+    3: ['alpha', 'beta', 'z', 'phi', 'a', 'bt1'], # t1-dimer: 平行移動 (a/2, bt1, z) → z 依存
+    4: ['alpha', 'beta', 'z', 'phi', 'a', 'bt2'], # t3-dimer: 平行移動 (a/2, -bt2, z) → z 依存
+}
 
 
 def _prepare_amber_resources(auto_dir: str):
@@ -44,15 +47,10 @@ def main_process(args):
         df_E = pd.DataFrame(columns=all_keys + ['E', 'E1', 'E2', 'E3', 'E4', 'status'])
         df_E.to_csv(auto_csv_path, index=False)
 
-    for n, opt_keys, e_col in [
-        (1, opt_param_keys_1, 'E1'),
-        (2, opt_param_keys_2, 'E2'),
-        (3, opt_param_keys_3, 'E3'),
-        (4, opt_param_keys_4, 'E4'),
-    ]:
+    for n, e_col in [(1, 'E1'), (2, 'E2'), (3, 'E3'), (4, 'E4')]:
         path = os.path.join(auto_dir, f'step1_{n}.csv')
         if not os.path.exists(path):
-            df = pd.DataFrame(columns=fixed_param_keys + opt_keys + [e_col, 'status', 'file_name'])
+            df = pd.DataFrame(columns=DIMER_KEYS[n] + [e_col, 'status', 'file_name'])
             df.to_csv(path, index=False)
 
     os.chdir(os.path.join(args.auto_dir, 'amber'))
@@ -69,75 +67,60 @@ def listen(auto_dir, monomer_name, num_nodes, isTest):
     mono_file = str(AMBER_REF / f'{monomer_name}_HF_esp_gaff2.out')
     E_mono = amber_get_E(mono_file)[0]
 
-    def _check_step(n, opt_keys, e_col):
-        csv = os.path.join(auto_dir, f'step1_{n}.csv')
-        df = pd.read_csv(csv)
-        for idx, row in df.loc[df['status'] == 'InProgress', fixed_param_keys + opt_keys + ['file_name']].iterrows():
+    # 各ダイマーの計算完了チェックと E 更新
+    e_cols = {1: 'E1', 2: 'E2', 3: 'E3', 4: 'E4'}
+    dfs = {}
+    for n, e_col in e_cols.items():
+        csv_n = os.path.join(auto_dir, f'step1_{n}.csv')
+        df_n = pd.read_csv(csv_n)
+        for idx, row in df_n.loc[df_n['status'] == 'InProgress', DIMER_KEYS[n] + ['file_name']].iterrows():
             log = os.path.join(auto_dir, 'amber', row['file_name'])
             if not os.path.exists(log):
                 continue
             E_list = amber_get_E(log)
             if len(E_list) == 1:
                 E = np.round(float(E_list[0]) - 2 * E_mono, 4)
-                df.loc[idx, [e_col, 'status']] = [E, 'Done']
-                df.to_csv(csv, index=False)
-        return df
+                df_n.loc[idx, [e_col, 'status']] = [E, 'Done']
+                df_n.to_csv(csv_n, index=False)
+        dfs[n] = df_n
 
-    df_E_1 = _check_step(1, opt_param_keys_1, 'E1')
-    df_E_2 = _check_step(2, opt_param_keys_2, 'E2')
-    df_E_3 = _check_step(3, opt_param_keys_3, 'E3')
-    df_E_4 = _check_step(4, opt_param_keys_4, 'E4')
-
+    # step1.csv の集計: 4ダイマーが全て Done になったら合計 E を記録
     auto_csv = os.path.join(auto_dir, 'step1.csv')
     df_E = pd.read_csv(auto_csv)
     for idx, row in df_E.loc[df_E['status'] == 'InProgress'].iterrows():
-        p1 = row[fixed_param_keys + opt_param_keys_1].to_dict()
-        p2 = row[fixed_param_keys + opt_param_keys_2].to_dict()
-        p3 = row[fixed_param_keys + opt_param_keys_3].to_dict()
-        p4 = row[fixed_param_keys + opt_param_keys_4].to_dict()
-
-        s1 = filter_df(df_E_1, p1)[lambda d: d['status'] == 'Done']
-        s2 = filter_df(df_E_2, p2)[lambda d: d['status'] == 'Done']
-        s3 = filter_df(df_E_3, p3)[lambda d: d['status'] == 'Done']
-        s4 = filter_df(df_E_4, p4)[lambda d: d['status'] == 'Done']
-
-        if not (len(s1) and len(s2) and len(s3) and len(s4)):
+        sub = {n: filter_df(dfs[n], {k: row[k] for k in DIMER_KEYS[n]}) for n in [1, 2, 3, 4]}
+        sub = {n: sub[n][sub[n]['status'] == 'Done'] for n in [1, 2, 3, 4]}
+        if not all(len(sub[n]) > 0 for n in [1, 2, 3, 4]):
             continue
-        E1, E2, E3, E4 = s1['E1'].values[0], s2['E2'].values[0], s3['E3'].values[0], s4['E4'].values[0]
+        E1, E2, E3, E4 = (sub[1]['E1'].values[0], sub[2]['E2'].values[0],
+                           sub[3]['E3'].values[0], sub[4]['E4'].values[0])
         E = 2*E1 + 2*E2 + 2*E3 + 2*E4
         df_E.loc[idx, ['E', 'E1', 'E2', 'E3', 'E4', 'status']] = [
             round(E, 4), round(E1, 4), round(E2, 4), round(E3, 4), round(E4, 4), 'Done'
         ]
         df_E.to_csv(auto_csv, index=False)
 
+    # 新規計算の投入
     dict_matrix = get_params_dict(auto_dir, num_nodes)
-    if dict_matrix:
-        for params_dict in dict_matrix:
-            p1 = {k: v for k, v in params_dict.items() if k in fixed_param_keys + opt_param_keys_1}
-            p2 = {k: v for k, v in params_dict.items() if k in fixed_param_keys + opt_param_keys_2}
-            p3 = {k: v for k, v in params_dict.items() if k in fixed_param_keys + opt_param_keys_3}
-            p4 = {k: v for k, v in params_dict.items() if k in fixed_param_keys + opt_param_keys_4}
+    for params_dict in dict_matrix:
+        if check_calc_status(auto_dir, params_dict):
+            continue
 
-            if check_calc_status(auto_dir, params_dict):
-                continue
+        df_E = pd.read_csv(auto_csv)
+        if len(filter_df(df_E, params_dict)) == 0:
+            new_row = pd.Series({**params_dict, 'E': 0., 'E1': 0., 'E2': 0., 'E3': 0., 'E4': 0., 'status': 'InProgress'})
+            df_E = pd.concat([df_E, new_row.to_frame().T], ignore_index=True)
+            df_E.to_csv(auto_csv, index=False)
 
-            df_E = pd.read_csv(auto_csv)
-            if len(filter_df(df_E, params_dict)) == 0:
-                new_row = pd.Series({**params_dict, 'E': 0., 'E1': 0., 'E2': 0., 'E3': 0., 'E4': 0., 'status': 'InProgress'})
-                df_E = pd.concat([df_E, new_row.to_frame().T], ignore_index=True)
-                df_E.to_csv(auto_csv, index=False)
-
-            for n, p, opt_keys, e_col in [(1, p1, opt_param_keys_1, 'E1'),
-                                           (2, p2, opt_param_keys_2, 'E2'),
-                                           (3, p3, opt_param_keys_3, 'E3'),
-                                           (4, p4, opt_param_keys_4, 'E4')]:
-                csv_n = os.path.join(auto_dir, f'step1_{n}.csv')
-                df_n = pd.read_csv(csv_n)
-                if len(filter_df(df_n, p)) == 0:
-                    file_name = exec_gjf(auto_dir, monomer_name, p, structure_type=n, isTest=isTest)
-                    new = pd.Series({**p, e_col: 0., 'status': 'InProgress', 'file_name': file_name})
-                    df_n = pd.concat([df_n, new.to_frame().T], ignore_index=True)
-                    df_n.to_csv(csv_n, index=False)
+        for n, e_col in e_cols.items():
+            p_n = {k: v for k, v in params_dict.items() if k in DIMER_KEYS[n]}
+            csv_n = os.path.join(auto_dir, f'step1_{n}.csv')
+            df_n = pd.read_csv(csv_n)
+            if len(filter_df(df_n, p_n)) == 0:
+                file_name = exec_gjf(auto_dir, monomer_name, p_n, structure_type=n, isTest=isTest)
+                new = pd.Series({**p_n, e_col: 0., 'status': 'InProgress', 'file_name': file_name})
+                df_n = pd.concat([df_n, new.to_frame().T], ignore_index=True)
+                df_n.to_csv(csv_n, index=False)
 
     init_params_csv = os.path.join(auto_dir, 'step1_init_params.csv')
     df_init = pd.read_csv(init_params_csv)
