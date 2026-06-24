@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Usage Example:
-1. Range mode:
+1. Range mode (両タイプ出力):
    python -m auto_opt.vdw.sweep_screw_phi --monomer-path data/monomer/DNTT.xyz --out-dir runs/ \
        --z-min 0 --z-max 3 --z-step 0.5 \
        --beta-min 0 --beta-max 10 --beta-step 5 \
@@ -10,6 +10,12 @@ Usage Example:
 
 2. List mode (alpha):
    python -m auto_opt.vdw.sweep_screw_phi ... --alpha-list 60 65 70
+
+3. a-stack のみ出力:
+   python -m auto_opt.vdw.sweep_screw_phi ... --select a-stack
+
+4. b-stack のみ出力:
+   python -m auto_opt.vdw.sweep_screw_phi ... --select b-stack
 """
 from __future__ import annotations
 import math, argparse, pathlib
@@ -37,14 +43,14 @@ def read_xyz(path: str) -> List[List[object]]:
 # --- 幾何 -------------------------------------------------------------------
 # 回転順: phi(x軸) → alpha(z軸) → beta(x軸)
 
-def t_shaped_pair(base_axyz, Rx_phi, Rz, Rx, b, z):
+def t_shaped_pair(base_axyz, Rx_phi, Rz, Rx, a, b, z):
     axyz_1, axyz_2 = [], []
     for x, y, zz, sym in base_axyz:
         rot = np.matmul(np.array([x, y, zz]), Rx_phi)
         rot = np.matmul(rot, Rz)
         rot = np.matmul(rot, Rx)
         axyz_1.append([ rot[0],       rot[1],       rot[2],   sym])
-        axyz_2.append([-rot[0],  rot[1]+b/2,  rot[2]+z,  sym])
+        axyz_2.append([-rot[0]+a/2,  rot[1]+b/2,  rot[2]+z,  sym])
     return axyz_1, axyz_2
 
 def parallel_pair(base_axyz, Rx_phi, Rz, Rx):
@@ -89,7 +95,8 @@ def sweep(monomer_path: str, out_dir: str,
           z_min: float, z_max: float, z_step: float,
           alpha_config: dict,
           beta_min: float, beta_max: float, beta_step: float,
-          phi_min: float, phi_max: float, phi_step: float) -> None:
+          phi_min: float, phi_max: float, phi_step: float,
+          select_types: List[str] | None = None) -> None:
 
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -113,6 +120,9 @@ def sweep(monomer_path: str, out_dir: str,
     ex = np.array([1., 0., 0.])
     ez = np.array([0., 0., 1.])
 
+    accept_all = select_types is None or "all" in select_types
+    accept_set = set(select_types) if select_types else set()
+
     total_iter = len(z_vals) * len(betas) * len(alphas) * len(phis)
     print(f"Starting sweep... Total configurations: {total_iter}")
 
@@ -125,17 +135,31 @@ def sweep(monomer_path: str, out_dir: str,
                 for phi in phis:
                     Rx_phi = Rod(-ex, phi)
 
-                    axyz_c, axyz_a = parallel_pair(base_axyz, Rx_phi, Rz, Rx)
-                    R_b = vdw_R(axyz_c, axyz_a, 90)
-                    axyz_c, axyz_t = t_shaped_pair(base_axyz, Rx_phi, Rz, Rx, R_b, z)
-                    R_a = vdw_R(axyz_c, axyz_t, 0.0)
-                    R_a *= 2
-                    all_rows.append([
-                        alpha, beta, phi,
-                        round(R_a, 1), round(R_b, 1),
-                        round(R_b/2, 1), round(R_b/2, 1),
-                        z, "NotYet", "vdW_min"
-                    ])
+                    # b-stack: b方向を平行接触で決め、a方向をT字接触で決める
+                    if accept_all or "b-stack" in accept_set:
+                        axyz_c, axyz_b = parallel_pair(base_axyz, Rx_phi, Rz, Rx)
+                        R_b = vdw_R(axyz_c, axyz_b, 90)
+                        axyz_c, axyz_t = t_shaped_pair(base_axyz, Rx_phi, Rz, Rx, 0, R_b, z)
+                        R_a = vdw_R(axyz_c, axyz_t, 0.0) * 2
+                        all_rows.append([
+                            alpha, beta, phi,
+                            round(R_a, 1), round(R_b, 1),
+                            round(R_b/2, 1), round(R_b/2, 1),
+                            z, "NotYet", "b-stack"
+                        ])
+
+                    # a-stack: a方向を平行接触で決め、b方向をT字接触で決める
+                    if accept_all or "a-stack" in accept_set:
+                        axyz_c, axyz_a = parallel_pair(base_axyz, Rx_phi, Rz, Rx)
+                        R_a = vdw_R(axyz_c, axyz_a, 0)
+                        axyz_c, axyz_t = t_shaped_pair(base_axyz, Rx_phi, Rz, Rx, R_a, 0, z)
+                        R_b = vdw_R(axyz_c, axyz_t, 90) * 2
+                        all_rows.append([
+                            alpha, beta, phi,
+                            round(R_a, 1), round(R_b, 1),
+                            round(R_b/2, 1), round(R_b/2, 1),
+                            z, "NotYet", "a-stack"
+                        ])
 
     df = pd.DataFrame(all_rows, columns=[
         'alpha', 'beta', 'phi', 'a', 'b', 'bt1', 'bt2', 'z', 'status', 'structure_type'
@@ -170,6 +194,10 @@ def main():
     ap.add_argument('--phi-max',  type=float, default=0.0)
     ap.add_argument('--phi-step', type=float, default=1.0)
 
+    ap.add_argument('--select', nargs='+', default=['all'],
+                    choices=['all', 'a-stack', 'b-stack'],
+                    help='出力する構造タイプ (デフォルト: all = 両方出力)')
+
     args = ap.parse_args()
 
     alpha_config = {
@@ -183,7 +211,8 @@ def main():
           args.z_min, args.z_max, args.z_step,
           alpha_config,
           args.beta_min, args.beta_max, args.beta_step,
-          args.phi_min,  args.phi_max,  args.phi_step)
+          args.phi_min,  args.phi_max,  args.phi_step,
+          select_types=args.select)
 
 
 if __name__ == '__main__':
