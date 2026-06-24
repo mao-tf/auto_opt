@@ -5,11 +5,10 @@ python -m auto_opt.amber.driver_gene --auto-dir runs/PFA_test --monomer-name PFA
 import pandas as pd
 import time
 from auto_opt.amber.make_io_gene_phi import exec_gjf ##計算した点のxyzfileを出す
-from auto_opt.utils import amber_get_E
+from auto_opt.utils import amber_get_E, filter_df, check_calc_status, get_values_from_df, update_value_in_df
 import argparse
 import numpy as np
 import shutil
-import subprocess
 import os
 from pathlib import Path
 
@@ -203,18 +202,6 @@ def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取�
     isOver = True if len(df_init_params_done)==len(df_init_params) else False
     return isOver
 
-def check_calc_status(auto_dir,params_dict):
-    df_E= pd.read_csv(os.path.join(auto_dir,'step1.csv'))
-    if len(df_E)==0:
-        return False
-    df_E_filtered = filter_df(df_E, params_dict)
-    df_E_filtered = df_E_filtered.reset_index(drop=True)
-    try:
-        status = get_values_from_df(df_E_filtered,0,'status')
-        return status=='Done'
-    except KeyError:
-        return False
-
 def get_params_dict(auto_dir, num_nodes):
     """
     前提:
@@ -289,22 +276,6 @@ def get_opt_params_dict(df_cur, init_params_dict,fixed_params_dict):
             return True,[[a_init,b_init,z_init]]
         else:
             a_init_prev=a_init;b_init_prev=b_init;z_init_prev=z_init
-
-def get_values_from_df(df,index,key):
-    return df.loc[index,key]
-
-def update_value_in_df(df,index,key,value):
-    df.loc[index,key]=value
-    return df
-
-def filter_df(df, dict_filter):
-    for k, v in dict_filter.items():
-        if type(v)==str:
-            df=df[df[k]==v]
-        else:
-            df=df[df[k]==v]
-    df_filtered=df
-    return df_filtered
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

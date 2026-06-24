@@ -5,11 +5,10 @@ python -m auto_opt.amber.driver_screw_phi --auto-dir runs/DNTT_test --monomer-na
 import pandas as pd
 import time
 from auto_opt.amber.make_io_gene_screw_phi import exec_gjf
-from auto_opt.utils import amber_get_E
+from auto_opt.utils import amber_get_E, filter_df, check_calc_status, get_values_from_df, update_value_in_df
 import argparse
 import numpy as np
 import shutil
-import subprocess
 import os
 from pathlib import Path
 
@@ -145,16 +144,6 @@ def listen(auto_dir, monomer_name, num_nodes, isTest):
     return len(filter_df(df_init, {'status': 'Done'})) == len(df_init)
 
 
-def check_calc_status(auto_dir, params_dict):
-    df_E = pd.read_csv(os.path.join(auto_dir, 'step1.csv'))
-    if len(df_E) == 0:
-        return False
-    df_f = filter_df(df_E, params_dict).reset_index(drop=True)
-    if len(df_f) > 0:
-        return df_f.loc[0, 'status'] == 'Done'
-    return False
-
-
 def get_params_dict(auto_dir, num_nodes):
     init_params_csv = os.path.join(auto_dir, 'step1_init_params.csv')
     df_init = pd.read_csv(init_params_csv)
@@ -224,22 +213,6 @@ def get_opt_params_dict(df_cur, init_params_dict, fixed_params_dict):
         if best['a'] == a_prev and best['bt1'] == bt1_prev and best['bt2'] == bt2_prev:
             return True, [best]
         a_prev, bt1_prev, bt2_prev = best['a'], best['bt1'], best['bt2']
-
-
-def get_values_from_df(df, index, key):
-    return df.loc[index, key]
-
-def update_value_in_df(df, index, key, value):
-    df.loc[index, key] = value
-    return df
-
-def filter_df(df, dict_filter):
-    for k, v in dict_filter.items():
-        if isinstance(v, float):
-            df = df[np.isclose(df[k], v, atol=1e-5)]
-        else:
-            df = df[df[k] == v]
-    return df
 
 
 if __name__ == '__main__':

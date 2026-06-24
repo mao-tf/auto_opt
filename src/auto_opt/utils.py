@@ -116,6 +116,36 @@ def place_monomer(
     return np.concatenate([xyz, R], axis=1)
 
 
+def filter_df(df: "pd.DataFrame", dict_filter: dict) -> "pd.DataFrame":
+    """各キーの値で DataFrame をフィルタリング。float は np.isclose で比較。"""
+    for k, v in dict_filter.items():
+        if isinstance(v, float):
+            df = df[np.isclose(df[k], v, atol=1e-5)]
+        else:
+            df = df[df[k] == v]
+    return df
+
+
+def check_calc_status(auto_dir: str, params_dict: dict) -> bool:
+    """step1.csv を読み、params_dict に対応する行が Done かどうかを返す。"""
+    df_E = pd.read_csv(Path(auto_dir) / "step1.csv")
+    if len(df_E) == 0:
+        return False
+    df_f = filter_df(df_E, params_dict).reset_index(drop=True)
+    if len(df_f) > 0:
+        return bool(df_f.loc[0, "status"] == "Done")
+    return False
+
+
+def get_values_from_df(df: "pd.DataFrame", index: int, key) -> object:
+    return df.loc[index, key]
+
+
+def update_value_in_df(df: "pd.DataFrame", index: int, key: str, value) -> "pd.DataFrame":
+    df.loc[index, key] = value
+    return df
+
+
 def amber_get_E(filepath: str) -> List[float]:
     """
     Amber sander 出力ファイルからエネルギー (kcal/mol) を読む。
