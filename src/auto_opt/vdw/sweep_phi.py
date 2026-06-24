@@ -70,13 +70,16 @@ def vdw_R(axyz_1, axyz_2, theta_deg: float) -> float:
     R12a2 = D2 - R12b*R12b
 
     rad_sum = r1[:,None] + r2[None,:]
-    sq = rad_sum*rad_sum - R12a2
-    sq = np.maximum(sq, 0.0)
-    twoR_need = -R12b + np.sqrt(sq)
-    twoR_need = np.maximum(twoR_need, 0.0)
+    rad_sum_sq = rad_sum * rad_sum
+    mask = R12a2 < rad_sum_sq
 
-    R = float(np.max(twoR_need))
-    return R
+    if not np.any(mask):
+        return 0.0
+
+    sq = rad_sum_sq[mask] - R12a2[mask]
+    twoR_need = -R12b[mask] + np.sqrt(sq)
+    twoR_need = np.maximum(twoR_need, 0.0)
+    return float(np.max(twoR_need))
 
 
 # --- スイープ本体 ------------------------------------------------------------
