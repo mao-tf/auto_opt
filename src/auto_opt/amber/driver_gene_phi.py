@@ -60,6 +60,9 @@ def main_process(args):
         isOver = listen(auto_dir,args.monomer_name,args.num_nodes,args.isTest)##argsの中身を取る
         time.sleep(0.1)
 
+    from auto_opt.gaussian.extract_minima import extract_minima
+    extract_minima(symmetry='glide', auto_dir=auto_dir)
+
 def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取るか中身をばらして取るかの違い
     fixed_param_keys = ['alpha','phi'];opt_param_keys_1 = ['a'];opt_param_keys_2 = ['b','z']
     
