@@ -262,9 +262,9 @@ flow/
 | ✅ 完了 | 中 | `sweep_phi.py` 変数名整理 | 接触方向角 `beta` → `theta_c` に改名（`extract_init_phi.py` も追従） |
 | ✅ 完了 | 中 | `vdw_R` のバグ修正 | `sweep_phi.py` を mask 方式に統一（接触不可ペアの誤計上を修正） |
 | ✅ 完了 | 中 | screw VdW sweep に構造分類を追加 | `sweep_screw_phi.py` に a-stack / b-stack 計算と `--select` オプションを追加 |
+| ✅ 完了 | 中 | `utils.py` の整理 | 未使用関数削除・型ヒント追加・R2atom float比較修正 |
+| ✅ 完了 | 低 | README.md 作成 | インストール・使い方（英語） |
 | 🔲 未着手 | 中 | 環境設定ファイルの導入 | `~/.auto_opt.yaml` でパスを外出し（詳細は §6 参照） |
-| 🔲 未着手 | 中 | `utils.py` の整理 | 共通関数を整備 |
-| 🔲 未着手 | 低 | README.md 作成 | インストール・使い方 |
 | 🔲 未着手 | 低 | pyproject.toml 整備 | 依存パッケージ明記 |
 
 ---

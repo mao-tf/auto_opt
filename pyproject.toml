@@ -4,13 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "auto-opt"
-version = "0.0.1"
-description = "Molecular crystal auto-optimization pipeline"
+version = "0.1.0"
+description = "Automated in-layer geometry optimization for organic semiconductor crystals"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["molecular-crystal", "organic-semiconductor", "amber", "gaussian", "dft"]
 dependencies = [
-  "numpy",
-  "pandas",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
 ]
 
 [tool.setuptools]
