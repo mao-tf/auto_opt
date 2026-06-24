@@ -3,13 +3,12 @@
 
 import os
 import numpy as np
-import pandas as pd
 import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Tuple, Optional
 
-from auto_opt.utils import Rod, R2atom
+from auto_opt.utils import Rod, R2atom, place_monomer
 
 # プロジェクトルート推定（src/auto_opt/.../このファイル という前提）
 ROOT = Path(__file__).resolve().parents[3]
@@ -32,10 +31,6 @@ def _next_section_idx(lines: List[str], start: int) -> int:
     while j < len(lines) and not lines[j].startswith("@<TRIPOS>"):
         j += 1
     return j
-
-# 先頭付近の import/定数の下あたりに追加
-import shutil
-import subprocess
 
 def _guess_mol2_path(monomer_name: str) -> Path:
     cand1 = MONO / f"{monomer_name}.mol2"
@@ -96,28 +91,6 @@ def _load_mol2_params(monomer_name: str) -> Tuple[List[Tuple[str,float]], List[T
                 pass  # スキップ
 
     return types_charges, bonds
-
-# ==========================
-#   幾何: CSV -> (x,y,z,R)
-# ==========================
-
-def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float, phi: float, alpha: float):
-    """
-    data/monomer/<monomer>.csv を読み、phi(-x軸回転) → alpha(z軸回転) → 平行移動(Ta,Tb,Tc)。
-    返り値: ndarray (N,4) = (x,y,z,R)
-    """
-    T_vec = np.array([Ta, Tb, Tc], float)
-    df_mono = pd.read_csv(MONO / f"{monomer_name}.csv")
-    atoms_array_xyzR = df_mono[['X', 'Y', 'Z', 'R']].to_numpy(dtype=float)
-
-    ex = np.array([1., 0., 0.]); ez = np.array([0., 0., 1.])
-    xyz = atoms_array_xyzR[:, :3]
-    xyz = xyz @ Rod(-ex, phi).T
-    xyz = xyz @ Rod(ez, alpha).T
-    xyz = xyz + T_vec
-
-    R = atoms_array_xyzR[:, 3].reshape((-1, 1))
-    return np.concatenate([xyz, R], axis=1)
 
 # ==========================
 #   mol2 行の生成（ダイマー）
@@ -263,11 +236,11 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     phi   = params_dict.get('phi', 0.0)
     alpha = params_dict.get('alpha', 0.0)
 
-    mon_i  = get_monomer_xyzR(monomer_name, 0,   0,   0,   phi,  alpha)
-    mon_p1 = get_monomer_xyzR(monomer_name, a,   0,   0,   phi,  alpha)
-    mon_p2 = get_monomer_xyzR(monomer_name, 0,   b, 2*z,   phi,  alpha)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2,  z,  phi, -alpha)
-    mon_t2 = get_monomer_xyzR(monomer_name,-a/2, b/2,  z,  phi, -alpha)
+    mon_i  = place_monomer(monomer_name, 0,   0,   0,   phi,  alpha)
+    mon_p1 = place_monomer(monomer_name, a,   0,   0,   phi,  alpha)
+    mon_p2 = place_monomer(monomer_name, 0,   b, 2*z,   phi,  alpha)
+    mon_t1 = place_monomer(monomer_name, a/2, b/2,  z,  phi, -alpha)
+    mon_t2 = place_monomer(monomer_name,-a/2, b/2,  z,  phi, -alpha)
 
     if structure_type == 1:
         arr = np.concatenate([mon_i, mon_p1], axis=0)
@@ -316,10 +289,10 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     phi   = params_dict.get('phi', 0.0)
     alpha = params_dict.get('alpha', 0.0)
 
-    mon_i  = get_monomer_xyzR(monomer_name, 0,   0,   0,   phi,  alpha)
-    mon_p1 = get_monomer_xyzR(monomer_name, a,   0,   0,   phi,  alpha)
-    mon_p2 = get_monomer_xyzR(monomer_name, 0,   b, 2*z,   phi,  alpha)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2,  z,  phi, -alpha)
+    mon_i  = place_monomer(monomer_name, 0,   0,   0,   phi,  alpha)
+    mon_p1 = place_monomer(monomer_name, a,   0,   0,   phi,  alpha)
+    mon_p2 = place_monomer(monomer_name, 0,   b, 2*z,   phi,  alpha)
+    mon_t1 = place_monomer(monomer_name, a/2, b/2,  z,  phi, -alpha)
 
     if structure_type == 1:
         dimer = np.concatenate([mon_i, mon_p1], axis=0)

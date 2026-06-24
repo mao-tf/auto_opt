@@ -1,7 +1,11 @@
 from __future__ import annotations
 import math
+from pathlib import Path
 import numpy as np
+import pandas as pd
 from typing import List
+
+_MONOMER_DIR = Path(__file__).resolve().parents[2] / "data" / "monomer"
 
 # VdW radii (Å) — Bondi values
 _VDW: dict[str, float] = {
@@ -82,6 +86,34 @@ def vdw_R(axyz_1: List[List], axyz_2: List[List], theta_deg: float) -> float:
     sq        = rad_sum_sq[mask] - R12a2[mask]
     twoR_need = np.maximum(-R12b[mask] + np.sqrt(sq), 0.0)
     return float(np.max(twoR_need))
+
+
+def place_monomer(
+    monomer_name: str,
+    tx: float, ty: float, tz: float,
+    phi: float, alpha: float, beta: float = 0.0,
+    monomer_dir: str | None = None,
+) -> np.ndarray:
+    """
+    モノマー CSV を読み、回転と平行移動を適用して (N,4) 配列を返す。
+
+    回転順: phi(-x軸) → alpha(z軸) → beta(-x軸) → 平行移動(tx,ty,tz)
+    glide では beta=0.0 (デフォルト) のまま使う。
+    """
+    _dir = Path(monomer_dir) if monomer_dir else _MONOMER_DIR
+    df_mono = pd.read_csv(_dir / f"{monomer_name}.csv")
+    arr = df_mono[['X', 'Y', 'Z', 'R']].to_numpy(dtype=float)
+
+    ex = np.array([1., 0., 0.])
+    ez = np.array([0., 0., 1.])
+    xyz = arr[:, :3]
+    xyz = xyz @ Rod(-ex, phi).T
+    xyz = xyz @ Rod(ez, alpha).T
+    xyz = xyz @ Rod(-ex, beta).T
+    xyz = xyz + np.array([tx, ty, tz])
+
+    R = arr[:, 3].reshape((-1, 1))
+    return np.concatenate([xyz, R], axis=1)
 
 
 def amber_get_E(filepath: str) -> List[float]:

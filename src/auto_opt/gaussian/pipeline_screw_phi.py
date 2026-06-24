@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Optional
 import numpy as np
 import pandas as pd
-from auto_opt.utils import Rod, R2atom
+from auto_opt.utils import Rod, R2atom, place_monomer
 
 # =========================================================
 #                   設定定数
@@ -44,29 +44,6 @@ MAX_PARALLEL = {1: 3, 2: 3}
 # =========================================================
 #                   幾何生成ユーティリティ
 # =========================================================
-
-def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float,
-                     beta: float, alpha: float, phi: float = 0.0) -> np.ndarray:
-    """
-    回転順: phi(-x軸) → alpha(z軸) → beta(-x軸) → 平行移動
-    make_io_gene_screw_phi.py の get_monomer_xyzR と同じ定義。
-    """
-    path = os.path.expanduser(os.path.join(MONOMER_DIR, f"{monomer_name}.csv"))
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"monomer CSV not found: {path}")
-    df_mono = pd.read_csv(path)
-    atoms_array_xyzR = df_mono[['X', 'Y', 'Z', 'R']].to_numpy(dtype=float)
-
-    ex = np.array([1., 0., 0.])
-    ez = np.array([0., 0., 1.])
-    xyz = atoms_array_xyzR[:, :3]
-    xyz = xyz @ Rod(-ex, phi).T
-    xyz = xyz @ Rod(ez,  alpha).T
-    xyz = xyz @ Rod(-ex, beta).T
-    xyz = xyz + np.array([Ta, Tb, Tc])
-    R = atoms_array_xyzR[:, 3].reshape((-1, 1))
-    return np.concatenate([xyz, R], axis=1)
-
 
 def get_xyzR_lines(xyzR_array: np.ndarray, file_description: str, machine_type: int) -> List[str]:
     mp_num = MACHINE_SPEC[machine_type]["nproc"]
@@ -118,11 +95,11 @@ def build_dimers(monomer_name: str, alpha: float, beta: float, phi: float,
       t1-dimer: (0,0,0) - (a/2, bt1, z)  [alpha → -alpha]
       t3-dimer: (0,0,0) - (a/2,-bt2, z)  [alpha → -alpha]
     """
-    mon0   = get_monomer_xyzR(monomer_name,   0,    0,   0, beta,  alpha, phi)
-    mon_a1 = get_monomer_xyzR(monomer_name,   a,    0,   0, beta,  alpha, phi)
-    mon_b1 = get_monomer_xyzR(monomer_name,   0,    b,   0, beta,  alpha, phi)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2,  bt1,   z, beta, -alpha, phi)
-    mon_t3 = get_monomer_xyzR(monomer_name, a/2, -bt2,   z, beta, -alpha, phi)
+    mon0   = place_monomer(monomer_name,   0,    0,   0, phi,  alpha,  beta, monomer_dir=MONOMER_DIR)
+    mon_a1 = place_monomer(monomer_name,   a,    0,   0, phi,  alpha,  beta, monomer_dir=MONOMER_DIR)
+    mon_b1 = place_monomer(monomer_name,   0,    b,   0, phi,  alpha,  beta, monomer_dir=MONOMER_DIR)
+    mon_t1 = place_monomer(monomer_name, a/2,  bt1,   z, phi, -alpha,  beta, monomer_dir=MONOMER_DIR)
+    mon_t3 = place_monomer(monomer_name, a/2, -bt2,   z, phi, -alpha,  beta, monomer_dir=MONOMER_DIR)
 
     return (
         np.concatenate([mon0, mon_a1], axis=0),
