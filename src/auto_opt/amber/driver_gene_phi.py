@@ -17,6 +17,11 @@ DATA = ROOT / "data"
 AMBER_REF = DATA / "amber_ref"
 RES = Path(__file__).resolve().parent / "resources"
 
+fixed_param_keys = ['alpha', 'phi', 'z']   # z は VdW sweep 由来の固定値
+opt_param_keys_1 = ['a']
+opt_param_keys_2 = ['b']
+all_keys         = ['alpha', 'phi', 'z', 'a', 'b']
+
 def _prepare_amber_resources(auto_dir: str):
     amber_dir = Path(auto_dir) / "amber"
     amber_dir.mkdir(parents=True, exist_ok=True)
@@ -34,23 +39,18 @@ def main_process(args):
     amber_path=os.path.join(auto_dir,'amber')
     auto_csv_path = os.path.join(auto_dir,'step1.csv')
     if not os.path.exists(auto_csv_path):        
-        df_E = pd.DataFrame(columns = ['alpha','phi','a','b','z','E','E1','E2','E3','status'])##いじる
-        df_E.to_csv(auto_csv_path,index=False)##step3を二段階でやる場合二段階目ではinitをやらないので念のためmainにも組み込んでおく
+        df_E = pd.DataFrame(columns=all_keys + ['E', 'E1', 'E2', 'E3', 'status'])
+        df_E.to_csv(auto_csv_path, index=False)
 
-    auto_csv_path1 = os.path.join(auto_dir,'step1_1.csv')
-    if not os.path.exists(auto_csv_path1):        
-        df_E_1 = pd.DataFrame(columns = ['alpha','phi','a','E1','status','file_name'])##いじる
-        df_E_1.to_csv(auto_csv_path1,index=False)##step3を二段階でやる場合二段階目ではinitをやらないので念のためmainにも組み込んでおく
-
-    auto_csv_path2 = os.path.join(auto_dir,'step1_2.csv')
-    if not os.path.exists(auto_csv_path2):        
-        df_E_2 = pd.DataFrame(columns = ['alpha','phi','b','z','E2','status','file_name'])##いじる
-        df_E_2.to_csv(auto_csv_path2,index=False)##step3を二段階でやる場合二段階目ではinitをやらないので念のためmainにも組み込んでおく
-
-    auto_csv_path3 = os.path.join(auto_dir,'step1_3.csv')
-    if not os.path.exists(auto_csv_path3):        
-        df_E_3 = pd.DataFrame(columns = ['alpha','phi','a','b','z','E3','status','file_name'])##いじる
-        df_E_3.to_csv(auto_csv_path3,index=False)##step3を二段階でやる場合二段階目ではinitをやらないので念のためmainにも組み込んでおく
+    for n, opt_keys, e_col in [
+        (1, opt_param_keys_1, 'E1'),
+        (2, opt_param_keys_2, 'E2'),
+        (3, opt_param_keys_1 + opt_param_keys_2, 'E3'),
+    ]:
+        path = os.path.join(auto_dir, f'step1_{n}.csv')
+        if not os.path.exists(path):
+            df = pd.DataFrame(columns=fixed_param_keys + opt_keys + [e_col, 'status', 'file_name'])
+            df.to_csv(path, index=False)
 
     os.chdir(os.path.join(args.auto_dir,'amber'))
     isOver = False
@@ -62,9 +62,7 @@ def main_process(args):
     from auto_opt.gaussian.extract_minima import extract_minima
     extract_minima(symmetry='glide', auto_dir=auto_dir)
 
-def listen(auto_dir,monomer_name,num_nodes,isTest):##args自体を引数に取るか中身をばらして取るかの違い
-    fixed_param_keys = ['alpha','phi'];opt_param_keys_1 = ['a'];opt_param_keys_2 = ['b','z']
-    
+def listen(auto_dir, monomer_name, num_nodes, isTest):
     mono_file = str(AMBER_REF / f'{monomer_name}_HF_esp_gaff2.out')
     E_mono=amber_get_E(mono_file)[0]
     auto_csv_1 = os.path.join(auto_dir,'step1_1.csv');df_E_1 = pd.read_csv(auto_csv_1)
@@ -210,72 +208,64 @@ def get_params_dict(auto_dir, num_nodes):
     init_params_csv=os.path.join(auto_dir, 'step1_init_params.csv')
     df_init_params = pd.read_csv(init_params_csv)
     df_cur = pd.read_csv(os.path.join(auto_dir, 'step1.csv'))
-    df_init_params_inprogress = df_init_params[df_init_params['status']=='InProgress']
-    fixed_param_keys = ['alpha','phi'];opt_param_keys_1 = ['a'];opt_param_keys_2 = ['b','z']
-    
-    #最初の立ち上がり時
-    if len(df_init_params_inprogress) < num_nodes:
-        #print(1)
-        df_init_params_notyet = df_init_params[df_init_params['status']=='NotYet']
-        for index in df_init_params_notyet.index:
-            df_init_params = update_value_in_df(df_init_params,index,'status','InProgress')
-            df_init_params.to_csv(init_params_csv,index=False)
-            params_dict = df_init_params.loc[index,fixed_param_keys+opt_param_keys_1+opt_param_keys_2].to_dict()
-            return [params_dict]
-    dict_matrix=[]
-    for index in df_init_params_inprogress.index:##こちら側はinit_params内のある業に関する探索が終わった際の新しい行での探索を開始するもの ###ここを改良すればよさそう
+    df_inprogress = df_init_params[df_init_params['status'] == 'InProgress']
+
+    if len(df_inprogress) < num_nodes:
+        df_notyet = df_init_params[df_init_params['status'] == 'NotYet']
+        for index in df_notyet.index:
+            df_init_params = update_value_in_df(df_init_params, index, 'status', 'InProgress')
+            df_init_params.to_csv(init_params_csv, index=False)
+            return [df_init_params.loc[index, all_keys].to_dict()]
+
+    dict_matrix = []
+    for index in df_inprogress.index:
         df_init_params = pd.read_csv(init_params_csv)
-        init_params_dict = df_init_params.loc[index,fixed_param_keys+opt_param_keys_1+opt_param_keys_2].to_dict()
-        fixed_params_dict = df_init_params.loc[index,fixed_param_keys].to_dict()
-        isDone, opt_params_matrix = get_opt_params_dict(df_cur, init_params_dict,fixed_params_dict)
+        init_params_dict  = df_init_params.loc[index, all_keys].to_dict()
+        fixed_params_dict = df_init_params.loc[index, fixed_param_keys].to_dict()
+        isDone, opt_params_matrix = get_opt_params_dict(df_cur, init_params_dict, fixed_params_dict)
         if isDone:
-            opt_params_dict={'a':np.round(opt_params_matrix[0][0],1),'b':np.round(opt_params_matrix[0][1],1),'z':np.round(opt_params_matrix[0][2],1)}
-            # df_init_paramsのstatusをupdate
-            df_init_params = update_value_in_df(df_init_params,index,'status','Done')
-            if np.max(df_init_params.index) < index+1:##もうこれ以上は新しい計算は進まない
+            df_init_params = update_value_in_df(df_init_params, index, 'status', 'Done')
+            if np.max(df_init_params.index) < index + 1:
                 status = 'Done'
             else:
-                status = get_values_from_df(df_init_params,index+1,'status')
-            df_init_params.to_csv(init_params_csv,index=False)
-            
-            if status=='NotYet':##計算が始まっていないものがあったらこの時点で開始する　ここでダメでもまた直にlistenでgrt_params_dictまでいけば新しいのが始まる            
-                opt_params_dict = get_values_from_df(df_init_params,index+1,fixed_param_keys+opt_param_keys_1+opt_param_keys_2)
-                df_init_params = update_value_in_df(df_init_params,index+1,'status','InProgress')
-                df_init_params.to_csv(init_params_csv,index=False)
-                dict_matrix.append({**fixed_params_dict,**opt_params_dict})
+                status = get_values_from_df(df_init_params, index + 1, 'status')
+            df_init_params.to_csv(init_params_csv, index=False)
+
+            if status == 'NotYet':
+                next_params = df_init_params.loc[index + 1, all_keys].to_dict()
+                df_init_params = update_value_in_df(df_init_params, index + 1, 'status', 'InProgress')
+                df_init_params.to_csv(init_params_csv, index=False)
+                dict_matrix.append(next_params)
             else:
                 continue
-
         else:
-            for i in range(len(opt_params_matrix)):
-                opt_params_dict={'a':np.round(opt_params_matrix[i][0],1),'b':np.round(opt_params_matrix[i][1],1),'z':np.round(opt_params_matrix[i][2],1)}
-                d={**fixed_params_dict,**opt_params_dict}
-                dict_matrix.append(d)
-                    #print(d)
+            for opt in opt_params_matrix:
+                dict_matrix.append({**fixed_params_dict,
+                                    'a': np.round(opt[0], 1),
+                                    'b': np.round(opt[1], 1)})
     return dict_matrix
         
-def get_opt_params_dict(df_cur, init_params_dict,fixed_params_dict):
+def get_opt_params_dict(df_cur, init_params_dict, fixed_params_dict):
+    # fixed_params_dict に z が含まれるので filter_df で z 固定済みの df_val を得る
     df_val = filter_df(df_cur, fixed_params_dict)
-    a_init_prev = init_params_dict['a'];b_init_prev = init_params_dict['b'];z_init_prev=init_params_dict['z']
+    a_prev = init_params_dict['a']
+    b_prev = init_params_dict['b']
     while True:
-        E_list=[];xyz_list=[]
-        para_list=[]
-        for a in [a_init_prev-0.1,a_init_prev,a_init_prev+0.1]:
-                    for b in [b_init_prev-0.1,b_init_prev,b_init_prev+0.1]:
-                                for z in [z_init_prev]:   
-                                    a = np.round(a,1);b = np.round(b,1);z=np.round(z,1)
-                                    df_val_xyz = df_val[(df_val['a']==a)&(df_val['b']==b)&(df_val['z']==z)&(df_val['status']=='Done')]
-                                    if len(df_val_xyz)==0:
-                                        para_list.append([a,b,z])
-                                        continue
-                                    xyz_list.append([a,b,z]);E_list.append(df_val_xyz['E'].values[0])
-        if len(para_list) != 0:
-            return False,para_list
-        a_init,b_init,z_init = xyz_list[np.argmin(np.array(E_list))]
-        if a_init==a_init_prev and b_init==b_init_prev and z_init==z_init_prev:
-            return True,[[a_init,b_init,z_init]]
-        else:
-            a_init_prev=a_init;b_init_prev=b_init;z_init_prev=z_init
+        E_list = []; ab_list = []; para_list = []
+        for a in [a_prev - 0.1, a_prev, a_prev + 0.1]:
+            for b in [b_prev - 0.1, b_prev, b_prev + 0.1]:
+                a = np.round(a, 1); b = np.round(b, 1)
+                df_v = df_val[(df_val['a'] == a) & (df_val['b'] == b) & (df_val['status'] == 'Done')]
+                if len(df_v) == 0:
+                    para_list.append([a, b])
+                else:
+                    ab_list.append([a, b]); E_list.append(df_v['E'].values[0])
+        if para_list:
+            return False, para_list
+        a_best, b_best = ab_list[np.argmin(E_list)]
+        if a_best == a_prev and b_best == b_prev:
+            return True, [[a_best, b_best]]
+        a_prev, b_prev = a_best, b_best
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
