@@ -37,7 +37,7 @@ MAX_PARALLEL = {1: 3, 2: 3}  # 各 machine の並列スロット
 #                   幾何生成ユーティリティ
 # =========================================================
 
-def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float, A2: float, A3: float) -> np.ndarray:
+def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float, phi: float, alpha: float) -> np.ndarray:
     path = os.path.join(MONOMER_DIR, f"{monomer_name}.csv")
     path = os.path.expanduser(path)
     if not os.path.exists(path):
@@ -48,11 +48,8 @@ def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float, A2: flo
     ex = np.array([1.,0.,0.])
     ez = np.array([0.,0.,1.])
     xyz = atoms_array_xyzR[:, :3]
-    # x軸回転
-    xyz = xyz @ Rod(-ex, A2).T
-    # z軸回転
-    xyz = xyz @ Rod(ez, A3).T
-    # 平行移動
+    xyz = xyz @ Rod(-ex, phi).T
+    xyz = xyz @ Rod(ez, alpha).T
     xyz = xyz + np.array([Ta, Tb, Tc])
     R = atoms_array_xyzR[:, 3].reshape((-1,1))
     return np.concatenate([xyz, R], axis=1)
@@ -105,12 +102,10 @@ def build_dimers(monomer_name: str, alpha: float, phi: float, a: float, b: float
       t1: (0,0,0, +alpha) と (a/2, b/2, z, -alpha)
     返り値: 各ダイマーの (x,y,z,R) を縦に 2N 並べた array
     """
-    A2 = phi
-    A3 = alpha
-    mon0   = get_monomer_xyzR(monomer_name, 0,   0,   0, A2,   A3)
-    mon_a1 = get_monomer_xyzR(monomer_name, a,   0,   0, A2,   A3)
-    mon_b1 = get_monomer_xyzR(monomer_name, 0,   b, 2*z, A2,   A3)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2, z, A2,  -A3)
+    mon0   = get_monomer_xyzR(monomer_name, 0,   0,   0, phi,   alpha)
+    mon_a1 = get_monomer_xyzR(monomer_name, a,   0,   0, phi,   alpha)
+    mon_b1 = get_monomer_xyzR(monomer_name, 0,   b, 2*z, phi,   alpha)
+    mon_t1 = get_monomer_xyzR(monomer_name, a/2, b/2, z, phi,  -alpha)
 
     dimer_a1 = np.concatenate([mon0, mon_a1], axis=0)
     dimer_b1 = np.concatenate([mon0, mon_b1], axis=0)

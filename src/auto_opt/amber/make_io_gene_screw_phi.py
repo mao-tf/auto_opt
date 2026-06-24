@@ -92,10 +92,12 @@ def _load_mol2_params(monomer_name: str) -> Tuple[List[Tuple[str,float]], List[T
 # ==========================
 
 def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float,
-                     A2: float, A3: float, phi: float = 0.0):
+                     beta: float, alpha: float, phi: float = 0.0):
     """
-    z回転(A3=alpha) → x回転(A2=beta) → y回転(phi) → 平行移動(Ta,Tb,Tc)。
-    phi: 分子面内の回転角 (y軸回り, 度)
+    回転順: phi(-x軸) → alpha(z軸) → beta(-x軸) → 平行移動(Ta,Tb,Tc)。
+    phi:   分子面内の回転角 (-x軸まわり, 度)
+    alpha: z軸まわりの回転角 (度)
+    beta:  結晶内の分子傾き角 (-x軸まわり, 度), screw 固有
     """
     T_vec = np.array([Ta, Tb, Tc], float)
     df_mono = pd.read_csv(MONO / f"{monomer_name}.csv")
@@ -105,8 +107,8 @@ def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float,
     ez = np.array([0., 0., 1.])
     xyz = atoms_array_xyzR[:, :3]
     xyz = xyz @ Rod(-ex, phi).T
-    xyz = xyz @ Rod(ez, A3).T
-    xyz = xyz @ Rod(-ex, A2).T
+    xyz = xyz @ Rod(ez, alpha).T
+    xyz = xyz @ Rod(-ex, beta).T
     xyz = xyz + T_vec
 
     R = atoms_array_xyzR[:, 3].reshape((-1, 1))
@@ -230,15 +232,15 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     bt2 = params_dict.get('bt2',  0.0)
     b   = params_dict.get('b',    0.0)
     z   = params_dict.get('z',    0.0)
-    A2  = params_dict.get('beta', 0.0)
-    A3  = params_dict.get('alpha',0.0)
+    beta  = params_dict.get('beta', 0.0)
+    alpha = params_dict.get('alpha', 0.0)
     phi = params_dict.get('phi',  0.0)
 
-    mon_i  = get_monomer_xyzR(monomer_name, 0,     0,    0,   A2,  A3,  phi)
-    mon_p1 = get_monomer_xyzR(monomer_name, a,     0,    0,   A2,  A3,  phi)
-    mon_p2 = get_monomer_xyzR(monomer_name, 0,     b,    0,   A2,  A3,  phi)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2,   bt1,  z,   A2, -A3,  phi)
-    mon_t3 = get_monomer_xyzR(monomer_name, a/2,  -bt2,  z,   A2, -A3,  phi)
+    mon_i  = get_monomer_xyzR(monomer_name, 0,     0,    0,   beta,  alpha,  phi)
+    mon_p1 = get_monomer_xyzR(monomer_name, a,     0,    0,   beta,  alpha,  phi)
+    mon_p2 = get_monomer_xyzR(monomer_name, 0,     b,    0,   beta,  alpha,  phi)
+    mon_t1 = get_monomer_xyzR(monomer_name, a/2,   bt1,  z,   beta, -alpha,  phi)
+    mon_t3 = get_monomer_xyzR(monomer_name, a/2,  -bt2,  z,   beta, -alpha,  phi)
 
     if structure_type == 1:
         arr = np.concatenate([mon_i, mon_p1], axis=0)
@@ -289,15 +291,15 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     bt2 = params_dict.get('bt2',  0.0)
     b   = params_dict.get('b',    0.0)
     z   = params_dict.get('z',    0.0)
-    A2  = params_dict.get('beta', 0.0)
-    A3  = params_dict.get('alpha',0.0)
+    beta  = params_dict.get('beta', 0.0)
+    alpha = params_dict.get('alpha', 0.0)
     phi = params_dict.get('phi',  0.0)
 
-    mon_i  = get_monomer_xyzR(monomer_name, 0,    0,    0,   A2,  A3,  phi)
-    mon_p1 = get_monomer_xyzR(monomer_name, a,    0,    0,   A2,  A3,  phi)
-    mon_p2 = get_monomer_xyzR(monomer_name, 0,    b,    0,   A2,  A3,  phi)
-    mon_t1 = get_monomer_xyzR(monomer_name, a/2,  bt1,  z,   A2, -A3,  phi)
-    mon_t3 = get_monomer_xyzR(monomer_name, a/2, -bt2,  z,   A2, -A3,  phi)
+    mon_i  = get_monomer_xyzR(monomer_name, 0,    0,    0,   beta,  alpha,  phi)
+    mon_p1 = get_monomer_xyzR(monomer_name, a,    0,    0,   beta,  alpha,  phi)
+    mon_p2 = get_monomer_xyzR(monomer_name, 0,    b,    0,   beta,  alpha,  phi)
+    mon_t1 = get_monomer_xyzR(monomer_name, a/2,  bt1,  z,   beta, -alpha,  phi)
+    mon_t3 = get_monomer_xyzR(monomer_name, a/2, -bt2,  z,   beta, -alpha,  phi)
 
     if structure_type == 1:
         dimer = np.concatenate([mon_i, mon_p1], axis=0)

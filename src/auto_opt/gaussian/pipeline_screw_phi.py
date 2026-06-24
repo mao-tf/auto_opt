@@ -46,7 +46,7 @@ MAX_PARALLEL = {1: 3, 2: 3}
 # =========================================================
 
 def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float,
-                     A2: float, A3: float, phi: float = 0.0) -> np.ndarray:
+                     beta: float, alpha: float, phi: float = 0.0) -> np.ndarray:
     """
     回転順: phi(-x軸) → alpha(z軸) → beta(-x軸) → 平行移動
     make_io_gene_screw_phi.py の get_monomer_xyzR と同じ定義。
@@ -61,8 +61,8 @@ def get_monomer_xyzR(monomer_name: str, Ta: float, Tb: float, Tc: float,
     ez = np.array([0., 0., 1.])
     xyz = atoms_array_xyzR[:, :3]
     xyz = xyz @ Rod(-ex, phi).T
-    xyz = xyz @ Rod(ez,  A3 ).T
-    xyz = xyz @ Rod(-ex, A2 ).T
+    xyz = xyz @ Rod(ez,  alpha).T
+    xyz = xyz @ Rod(-ex, beta).T
     xyz = xyz + np.array([Ta, Tb, Tc])
     R = atoms_array_xyzR[:, 3].reshape((-1, 1))
     return np.concatenate([xyz, R], axis=1)
