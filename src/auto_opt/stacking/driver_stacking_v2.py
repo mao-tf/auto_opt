@@ -6,7 +6,6 @@ python auto_opt.stacking.driver_stacking_v2.py --auto-dir runs/ANT_stakcing_test
 """
 
 import os
-os.environ['HOME'] ='/home/miyoshi'
 import pandas as pd
 import time
 import argparse

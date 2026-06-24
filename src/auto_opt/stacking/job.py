@@ -10,7 +10,6 @@ python -m auto_opt.stacking.job --auto-dir runs/PFA_stacking/phi_20.0 --monomer-
 """
 
 import os
-os.environ['HOME'] = '/data/group1/z40145w'
 
 import pandas as pd
 import argparse

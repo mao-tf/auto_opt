@@ -5,7 +5,6 @@
 python -m auto_opt.amber.job_phi --auto-dir runs/ANT_test4 --monomer-name ANT --num-nodes 10 
 """
 import os
-os.environ['HOME'] = '/data/group1/z40145w'
 
 import pandas as pd
 import argparse

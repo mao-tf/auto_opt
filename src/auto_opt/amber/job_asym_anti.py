@@ -12,7 +12,6 @@ Usage:
 
 import os
 # 必要に応じて環境変数を設定
-os.environ['HOME'] = '/data/group1/z40145w'
 
 import pandas as pd
 import argparse

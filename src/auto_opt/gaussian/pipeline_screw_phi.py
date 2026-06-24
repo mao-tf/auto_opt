@@ -33,7 +33,7 @@ from auto_opt.utils import Rod, R2atom
 #                   設定定数
 # =========================================================
 
-MONOMER_DIR = os.path.expanduser("~/Working/auto_opt/data/monomer")
+MONOMER_DIR = str(Path(__file__).resolve().parents[3] / "data" / "monomer")
 
 MACHINE_SPEC = {
     1: {"queue": "gr1.q", "nproc": 40},

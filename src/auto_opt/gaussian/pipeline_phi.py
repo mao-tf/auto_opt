@@ -23,7 +23,8 @@ import numpy as np
 import pandas as pd
 from auto_opt.utils import Rod, R2atom
 
-MONOMER_DIR = os.path.expanduser("~/Working/auto_opt/data/monomer")
+# デフォルトはパッケージ基準の data/monomer/ (CLI で --monomer-dir 上書き可)
+MONOMER_DIR = str(Path(__file__).resolve().parents[3] / "data" / "monomer")
 
 # Gaussian 実行設定
 MACHINE_SPEC = {

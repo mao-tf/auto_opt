@@ -7,7 +7,6 @@ python -m auto_opt.amber.job_screw_phi --auto-dir runs/DNTT_test --monomer-name 
 python -m auto_opt.amber.job_screw_phi --auto-dir runs/DNTT_test --monomer-name DNTT --num-nodes 40 --split-by alpha
 """
 import os
-os.environ['HOME'] = '/data/group1/z40145w'
 
 import pandas as pd
 import argparse

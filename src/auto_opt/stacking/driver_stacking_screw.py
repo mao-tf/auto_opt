@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-os.environ['HOME'] ='/home/miyoshi'
 import pandas as pd
 import time
 import argparse
