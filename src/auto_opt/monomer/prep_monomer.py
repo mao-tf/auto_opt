@@ -25,6 +25,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -263,6 +264,21 @@ def write_gaussian_qsub(inp_path: Path, nproc: int, queue: str) -> Path:
     return r1
 
 
+# ── Gaussian ジョブ完了待ち ──────────────────────────────────────────────
+
+def _wait_for_normal_termination(log_path: Path, poll_interval: int = 30) -> None:
+    print(f'[poll] {log_path.name} の完了待ち ({poll_interval}s 間隔)...')
+    while True:
+        if log_path.exists():
+            text = log_path.read_text(encoding='utf-8', errors='replace')
+            if 'Normal termination' in text:
+                print(f'[poll] 完了: {log_path.name}')
+                return
+            if 'Error termination' in text:
+                raise RuntimeError(f'Gaussian が異常終了しました: {log_path}')
+        time.sleep(poll_interval)
+
+
 # ── antechamber (RESP) ───────────────────────────────────────────────────
 
 def resp_mol2_from_gesp(gesp_dat: Path, xyz_path: Path,
@@ -363,7 +379,7 @@ def _parse_args() -> Args:
     )
     ap.add_argument('--in',       dest='xyz',      required=True)
     ap.add_argument('--monomer',  required=True)
-    ap.add_argument('--mode',     choices=['opt', 'resp', 'bcc'], default='resp')
+    ap.add_argument('--mode',     choices=['opt', 'resp', 'bcc', 'all'], default='resp')
     ap.add_argument('--out-mol2', default=None)
     ap.add_argument('--out-csv',  default=None)
     ap.add_argument('--amber-ref', action='store_true',
@@ -387,7 +403,6 @@ def _parse_args() -> Args:
     default_queue, default_nproc = _gauss_queue_nproc()
     xyz = Path(os.path.expanduser(a.xyz)).resolve()
     mon = a.monomer
-    tag = 'HF_esp' if a.mode == 'resp' else ('bcc' if a.mode == 'bcc' else 'opt')
     out_mol2 = (Path(os.path.expanduser(a.out_mol2)).resolve() if a.out_mol2
                 else MONO_DIR / f'{mon}.mol2')
     out_csv  = (Path(os.path.expanduser(a.out_csv)).resolve() if a.out_csv
@@ -412,6 +427,59 @@ def main() -> None:
     args = _parse_args()
     MONO_DIR.mkdir(parents=True, exist_ok=True)
     AMBER_REF_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ── mode: all (opt → resp → amber_ref を自動で連続実行) ──────────────
+    if args.mode == 'all':
+        work = MONO_DIR
+        # --- opt ---
+        inp_opt = work / f'{args.monomer}_opt.inp'
+        log_opt = work / f'{args.monomer}_opt.log'
+        write_gaussian_inp_for_opt(
+            args.xyz, args.monomer, inp_opt,
+            level=args.opt_level,
+            charge=args.charge, mult=args.mult, nproc=args.nproc,
+        )
+        r1_opt = write_gaussian_qsub(inp_opt, nproc=args.nproc, queue=args.queue)
+        _run(['qsub', r1_opt.name], cwd=work)
+        print('[all] opt ジョブを投入しました。完了を待ちます...')
+        _wait_for_normal_termination(log_opt)
+        atoms = read_opt_xyz_from_log(log_opt)
+        atoms = pca_align(atoms)
+        out_xyz = work / f'{args.monomer}.xyz'
+        write_xyz(atoms, out_xyz,
+                  comment=f'{args.monomer} optimized ({args.opt_level}), PCA aligned')
+        write_csv_from_xyz(out_xyz, args.out_csv)
+        # --- resp ---
+        base_esp = work / f'{args.monomer}_HF_esp'
+        inp_esp  = base_esp.with_suffix('.inp')
+        log_esp  = base_esp.with_suffix('.log')
+        gesp_dat = write_gaussian_inp_for_gesp(
+            out_xyz, args.monomer, inp_esp,
+            level=args.esp_level,
+            charge=args.charge, mult=args.mult, nproc=args.nproc,
+        )
+        r1_esp = write_gaussian_qsub(inp_esp, nproc=args.nproc, queue=args.queue)
+        _run(['qsub', r1_esp.name], cwd=work)
+        print('[all] resp ジョブを投入しました。完了を待ちます...')
+        _wait_for_normal_termination(log_esp)
+        if not gesp_dat.exists():
+            cands = list(work.glob(f'{args.monomer}_HF_esp*.dat'))
+            if not cands:
+                raise SystemExit(f'GESP .dat が見つかりません: {gesp_dat}')
+            gesp_dat = cands[0]
+        resp_mol2_from_gesp(gesp_dat, out_xyz, args.out_mol2, residue=args.monomer)
+        # --- amber_ref ---
+        if args.make_amber_ref:
+            if not (_which('tleap') and _which('sander')):
+                raise SystemExit('tleap/sander が見つかりません')
+            wd    = args.out_mol2.parent
+            base2 = f'{args.monomer}_gaff2'
+            write_tleap_and_run(args.out_mol2, wd / base2, frcmods=[])
+            tmp_out    = run_sander_energy(wd, base2)
+            single_out = AMBER_REF_DIR / f'{args.monomer}_gaff2.out'
+            single_out.write_text(tmp_out.read_text(), encoding='utf-8')
+            print(f'[amber_ref] wrote {single_out}')
+        return
 
     # ── mode: opt ────────────────────────────────────────────────────────
     if args.mode == 'opt':
