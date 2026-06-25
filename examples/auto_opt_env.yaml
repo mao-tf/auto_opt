@@ -1,0 +1,23 @@
+# ~/.auto_opt.yaml  ―  auto_opt 環境設定
+#
+# このファイルを ~/.auto_opt.yaml としてホームディレクトリに置くと
+# job_phi.py / job_screw_phi.py / job_stacking_screw.py が自動で読み込む。
+# 省略した項目は組み込みデフォルト値（下記コメントの値）が使われる。
+#
+# ── スケジューラ ────────────────────────────────
+scheduler: sge          # 現在 sge のみサポート
+
+# ── キュー定義 ──────────────────────────────────
+# 利用可能なキューを列挙する。投入時に used==0 のキューを自動選択する。
+queues:
+  - name: gr1.q         # SGE キュー名
+    nproc: 40           # そのキューのコア数
+    pe: OpenMP          # 並列環境名 (#$ -pe の値)
+  - name: gr2.q
+    nproc: 52
+    pe: OpenMP
+
+# ── ジョブ投入制御 ──────────────────────────────
+max_concurrent_jobs: 6  # 同時実行ジョブ数の上限（自分のジョブ合計）
+poll_interval: 30       # 空きノード確認の間隔（秒）
+nproc_reserve: 2        # OS 用に確保するコア数（num_nodes = nproc - nproc_reserve）

@@ -133,21 +133,17 @@ def run_pipeline(
         print("  ※ 完了後に Step 4（局所最小抽出）が自動実行されます")
         print("=" * 60)
 
-        num_nodes = str(amber_cfg.get('num_nodes', 38))
-
         if symmetry == 'glide':
             _run([
                 'auto_opt.amber.job_phi',
                 '--auto-dir', auto_dir,
                 '--monomer-name', monomer,
-                '--num-nodes', num_nodes,
             ], dry_run=dry_run)
         else:
             _run([
                 'auto_opt.amber.job_screw_phi',
                 '--auto-dir', auto_dir,
                 '--monomer-name', monomer,
-                '--num-nodes', num_nodes,
             ], dry_run=dry_run)
 
         print(f"\n[auto_opt] 完了。結果 -> {auto_dir}/filtered_step1.csv")
