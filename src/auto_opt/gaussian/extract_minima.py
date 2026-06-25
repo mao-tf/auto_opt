@@ -226,7 +226,7 @@ def _classify_structure_by_a_rank(df: pd.DataFrame) -> pd.DataFrame:
             labels[0] = 'a-stack'
             labels[1] = 'b-stack'
         elif n == 1:
-            labels[0] = 'a-stack'
+            labels[0] = 'unknown'
 
         val_to_label = {
             v: labels.get(i, 'unknown')
