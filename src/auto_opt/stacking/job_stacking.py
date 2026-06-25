@@ -1,189 +1,107 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Step 1 (Intralayer Search) のジョブ投入スクリプト
-指定されたディレクトリ内の step1_init_params.csv を読み込み、
-指定された数（num_splits）に均等分割して、サブディレクトリを作成しジョブを分散投入します。
+スタッキング計算ジョブ投入スクリプト (glide / screw 共通)
 
-qstat -f でノードの空き状況をリアルタイムに確認し、
-空いているノードに順次投入します。
+step1_init_params.csv を空きノード数に分割して qsub で投入する。
+キュー設定は ~/.auto_opt.yaml から読み込む。
+
+Usage:
+  python -m auto_opt.stacking.job_stacking \
+      --auto-dir runs/BTBT_screw_stacking \
+      --monomer-name BTBT \
+      --symmetry screw
 """
+from __future__ import annotations
 
-import os
-import re
-import time
-import pandas as pd
-import numpy as np
 import argparse
 import subprocess
+import time
 from pathlib import Path
-from typing import Dict, List, Optional
 
-# cmdell81 のキュー仕様
-MACHINE_SPEC = {
-    1: {"queue": "gr1.q", "nproc": 40},
-    2: {"queue": "gr2.q", "nproc": 52},
-}
-MAX_CONCURRENT = 6   # 同時実行ジョブ数の上限（全キュー合計）
-POLL_INTERVAL  = 30  # 空き確認の間隔（秒）
-USER = os.environ.get("USER", "miyoshi")
+import numpy as np
+import pandas as pd
 
+from auto_opt.cluster import (
+    load_env, wait_for_free_node, make_job_script,
+)
 
-# ─── ノード空き確認 ────────────────────────────────────────────────────
-
-def get_my_job_count() -> int:
-    """自分が投入したジョブ数（実行中 + 待機中）を返す。"""
-    try:
-        r = subprocess.run(["qstat", "-u", USER],
-                           capture_output=True, text=True, timeout=15)
-        return sum(1 for ln in r.stdout.splitlines()
-                   if re.match(r'^\s*\d+', ln))
-    except Exception:
-        return 0
-
-
-def get_free_queue_instances() -> Dict[str, List[str]]:
-    """qstat -f を解析して空き（used==0）のキューインスタンスを返す。"""
-    try:
-        r = subprocess.run(["qstat", "-f", "-u", "*"],
-                           capture_output=True, text=True, timeout=15)
-        output = r.stdout
-    except Exception:
-        return {"gr1.q": [], "gr2.q": []}
-
-    free: Dict[str, List[str]] = {"gr1.q": [], "gr2.q": []}
-    pat = re.compile(r'^((gr[12]\.q)@\S+)\s+\S+\s+\d+/(\d+)/\d+', re.MULTILINE)
-    for m in pat.finditer(output):
-        qi, qname, used = m.group(1), m.group(2), int(m.group(3))
-        if used == 0 and qname in free:
-            free[qname].append(qi)
-    return free
-
-
-def pick_free_instance(
-    free_by_queue: Dict[str, List[str]],
-    prefer_queue: Optional[str] = None,
-) -> Optional[tuple]:
-    """空きキューインスタンスを1つ選んで (qname, qi) を返す。"""
-    all_queues = ["gr1.q", "gr2.q"]
-    order = all_queues if not prefer_queue else \
-            [prefer_queue] + [q for q in all_queues if q != prefer_queue]
-    for qname in order:
-        if free_by_queue.get(qname):
-            return qname, free_by_queue[qname][0]
-    return None
-
-
-# ─── メイン処理 ────────────────────────────────────────────────────────
 
 def init_process(args):
     auto_dir_root = Path(args.auto_dir).resolve()
-    params_csv = auto_dir_root / 'step1_init_params.csv'
+    params_csv    = auto_dir_root / 'step1_init_params.csv'
 
     if not params_csv.exists():
         raise FileNotFoundError(f"初期パラメータファイルが見つかりません: {params_csv}")
 
     df_init = pd.read_csv(params_csv)
-    total_rows = len(df_init)
-
-    if total_rows == 0:
-        print("CSVが空です。処理を終了します。")
+    if df_init.empty:
+        print("CSV が空です。終了します。")
         return
 
-    num_splits = args.num_splits
-    print(f"Total rows: {total_rows}")
-    print(f"Splitting into {num_splits} chunks...")
+    cfg        = load_env()
+    n_cap      = cfg.get('max_concurrent_jobs', 6)
+    n_splits   = args.num_splits if args.num_splits else min(n_cap, len(df_init))
+    df_chunks  = [c for c in np.array_split(df_init, n_splits) if not c.empty]
 
-    df_chunks = [c for c in np.array_split(df_init, num_splits) if not c.empty]
+    print(f"  {len(df_init)} 点を {len(df_chunks)} ノードに分割して投入します")
 
     prefer_queue = None
 
     for i, df_chunk in enumerate(df_chunks):
-        dir_name = f'split_{i}'
-        subdir = auto_dir_root / dir_name
+        subdir = auto_dir_root / f'split_{i}'
         subdir.mkdir(parents=True, exist_ok=True)
 
-        # すでに結果ファイルがあるsplitはスキップ
-        if (subdir / 'step1.csv').exists():
-            print(f"  {dir_name}: step1.csv 既存 → スキップ")
+        if (subdir / 'job.sh').exists():
+            print(f"  split_{i} → スキップ（既に投入済み）")
             continue
 
         df_chunk.to_csv(subdir / 'step1_init_params.csv', index=False)
 
-        # 自分のジョブ数が上限未満 かつ 空きノードがある まで待つ
-        while True:
-            if args.isTest:
-                qname = "gr1.q" if i % 2 == 0 else "gr2.q"
-                qi = f"{qname}@node{i+1:02d}"
-                break
+        qname, qi, num_nodes = wait_for_free_node(
+            prefer_queue=prefer_queue,
+            is_test=args.isTest,
+            test_index=i,
+        )
 
-            n_jobs = get_my_job_count()
-            if n_jobs >= MAX_CONCURRENT:
-                print(f"  実行中ジョブ数={n_jobs}（上限{MAX_CONCURRENT}）。{POLL_INTERVAL}秒後に再確認...")
-                time.sleep(POLL_INTERVAL)
-                continue
-
-            free_by_queue = get_free_queue_instances()
-            pick = pick_free_instance(free_by_queue, prefer_queue)
-            if pick:
-                qname, qi = pick
-                break
-
-            print(f"  空きノードなし。{POLL_INTERVAL}秒後に再確認...")
-            time.sleep(POLL_INTERVAL)
-
-        nproc = MACHINE_SPEC[1 if qname == "gr1.q" else 2]["nproc"]
-
-        # driver_stacking_v2 を呼び出すコマンド
         cmd = (
-            'python -m auto_opt.stacking.driver_stacking_v2 '
-            f'--auto-dir {str(subdir)} '
+            f'python -m auto_opt.stacking.driver_stacking '
+            f'--auto-dir {subdir} '
             f'--monomer-name {args.monomer_name} '
-            f'--num-nodes {args.num_nodes} '
-            f'--max-2 3'
+            f'--symmetry {args.symmetry} '
+            f'--num-nodes {num_nodes}'
         )
         if args.isTest:
             cmd += ' --isTest'
 
-        job_name = f"{args.monomer_name}_{i}"
-        job_lines = [
-            "#!/bin/sh\n",
-            f"#$ -N {job_name}\n",
-            "#$ -S /bin/sh\n",
-            "#$ -cwd\n",
-            "#$ -V\n",
-            f"#$ -q {qi}\n",          # 空きノードを直接指定
-            f"#$ -pe OpenMP {nproc}\n",
-            f"#$ -o {subdir}/job.sh.o{i}\n",
-            f"#$ -e {subdir}/job.sh.e{i}\n",
-            "\n",
-            "hostname\n",
-            "\n",
-            cmd + "\n",
-            "\n",
-        ]
-
+        script = make_job_script(
+            cmd,
+            queue=qname,
+            queue_instance=qi,
+            job_name=f"{args.monomer_name}_stk{i}",
+            stdout=str(subdir / 'job.sh.o'),
+            stderr=str(subdir / 'job.sh.e'),
+        )
         job_path = subdir / 'job.sh'
-        with open(job_path, 'w') as f:
-            f.writelines(job_lines)
+        job_path.write_text(script)
 
+        subprocess.run(['qsub', 'job.sh'], cwd=str(subdir))
+        print(f"  split_{i} ({len(df_chunk)}点) → {qi}  (num_nodes={num_nodes})")
+
+        prefer_queue = [q for q in ['gr1.q', 'gr2.q'] if q != qname][0]
         if not args.isTest:
-            subprocess.run(['qsub', 'job.sh'], cwd=str(subdir))
-            prefer_queue = "gr2.q" if qname == "gr1.q" else "gr1.q"
-            time.sleep(5)  # qstatに反映されるまで少し待つ
-
-        print(f"  {dir_name} ({len(df_chunk)}行) → {qi}")
+            time.sleep(5)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Step 1 Job Dispatcher (Split by rows)')
-    parser.add_argument('--isTest', action='store_true')
-    parser.add_argument('--auto-dir', type=str, required=True)
-    parser.add_argument('--monomer-name', type=str, default='ANT')
-    parser.add_argument('--num-nodes', type=int, default=10)
-    parser.add_argument('--num-splits', type=int, default=6,
-                        help='CSVを何等分してジョブを投げるか（デフォルト: 6）')
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--isTest',       action='store_true')
+    ap.add_argument('--auto-dir',     required=True)
+    ap.add_argument('--monomer-name', required=True)
+    ap.add_argument('--symmetry',     choices=['glide', 'screw'], required=True)
+    ap.add_argument('--num-splits',   type=int, default=None,
+                    help='分割数（省略時は空きノード数に合わせる）')
+    args = ap.parse_args()
 
+    print('---- job_stacking start ----')
     init_process(args)
+    print('---- job_stacking finish ----')

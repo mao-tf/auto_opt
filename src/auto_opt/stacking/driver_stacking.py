@@ -1,194 +1,273 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-import pandas as pd
-import numpy as np
+"""
+スタッキング Amber 最適化ドライバー (glide / screw 共通)
+
+step1_init_params.csv の各 (cx, cy) について cz を±0.1 ずつ広げながら
+エネルギー最小値を探す。各計算は非同期バックグラウンドで実行。
+
+Usage:
+  python -m auto_opt.stacking.driver_stacking \
+      --auto-dir runs/BTBT_glide/split_0 \
+      --monomer-name BTBT \
+      --symmetry glide \
+      --num-nodes 38
+"""
+from __future__ import annotations
+
 import argparse
-import os
 import shutil
+import subprocess
+import time
 from pathlib import Path
-from scipy.optimize import minimize_scalar
+from typing import Dict, List, Set, Tuple
 
-# 既存のIO関数に加えて、モノマーの座標を取得する関数もインポートします
-from auto_opt.stacking.make_io_stacking import exec_gjf_stacking, get_monomer_xyzR
+import numpy as np
+import pandas as pd
+
+from auto_opt.cluster import get_amber_tool
 from auto_opt.utils import amber_get_E
+from auto_opt.amber.make_io_gene_phi import _guess_mol2_path
 
-RES = Path(__file__).resolve().parent / "resources"
+_FF_CALC = Path(__file__).resolve().parent / "resources" / "FF_calc.in"
 
-def _prepare_amber_resources(auto_dir: str):
-    amber_dir = Path(auto_dir) / "amber"
-    amber_dir.mkdir(parents=True, exist_ok=True)
-    src = RES / "FF_calc.in"
-    if src.exists():
-        shutil.copy2(src, amber_dir / "FF_calc.in")
+# ──────────────────────────────────────────────────────────────
+#  対称性ごとの設定
+# ──────────────────────────────────────────────────────────────
 
-def estimate_vdw_cz(monomer_name, params_dict):
-    a = params_dict['a']; b = params_dict['b']; z = params_dict['z']
-    theta1 = params_dict['theta1']; theta2 = params_dict['theta2']
-    cx = params_dict['cx']; cy = params_dict['cy']
-    
-    top_mol = get_monomer_xyzR(monomer_name, cx, cy, 0.0, theta2)
-    b0 = get_monomer_xyzR(monomer_name, 0, 0, 0, theta1)
-    ba1 = get_monomer_xyzR(monomer_name, a, 0, 0, theta1)
-    ba2 = get_monomer_xyzR(monomer_name, -a, 0, 0, theta1)
-    bb1 = get_monomer_xyzR(monomer_name, 0, b, 2*z, theta1)
-    bb2 = get_monomer_xyzR(monomer_name, 0, -b, -2*z, theta1)
-    bt1 = get_monomer_xyzR(monomer_name, a/2, b/2, z, -theta1)
-    bt2 = get_monomer_xyzR(monomer_name, a/2, -b/2, -z, -theta1)
-    bt3 = get_monomer_xyzR(monomer_name, -a/2, -b/2, -z, -theta1)
-    bt4 = get_monomer_xyzR(monomer_name, -a/2, b/2, z, -theta1)
-    
-    bottom_layer = np.concatenate([b0, ba1, ba2, bb1, bb2, bt1, bt2, bt3, bt4], axis=0)
-    
-    b_xyz = bottom_layer[:, :3]; b_r = bottom_layer[:, 3]
-    t_xyz = top_mol[:, :3];      t_r = top_mol[:, 3]
-    
-    dx = t_xyz[:, 0].reshape(-1, 1) - b_xyz[:, 0]
-    dy = t_xyz[:, 1].reshape(-1, 1) - b_xyz[:, 1]
-    dxy2 = dx**2 + dy**2
-    
-    sr = t_r.reshape(-1, 1) + b_r
-    sr2 = sr**2
-    
-    mask = dxy2 < sr2
-    dz = b_xyz[:, 2] - t_xyz[:, 2].reshape(-1, 1)
-    required_cz = dz[mask] + np.sqrt(sr2[mask] - dxy2[mask])
-    
-    if len(required_cz) > 0:
-        return np.max(required_cz)
+_FIXED_KEYS = {
+    'glide': ['a', 'b', 'z', 'phi', 'alpha1', 'alpha2'],
+    'screw': ['a', 'bt1', 'bt2', 'b', 'z', 'beta', 'phi', 'alpha1', 'alpha2'],
+}
+
+_GROUP_COLS = {
+    'glide': ['z', 'phi', 'cx', 'cy'],
+    'screw': ['beta', 'z', 'phi', 'cx', 'cy'],
+}
+
+
+def _group_key(params: dict, symmetry: str) -> tuple:
+    return tuple(round(float(params[c]), 1) for c in _GROUP_COLS[symmetry])
+
+
+def _fmt(v: float, dec: int) -> str:
+    return f"{v:.{dec}f}".replace('.', 'p').replace('-', 'm')
+
+
+def _base_name(monomer: str, params: dict, symmetry: str) -> str:
+    parts = [monomer]
+    if symmetry == 'screw':
+        parts += [f"beta{_fmt(params['beta'], 1)}"]
+    parts += [
+        f"z{_fmt(params['z'],   1)}",
+        f"phi{_fmt(params['phi'], 1)}",
+        f"cx{_fmt(params['cx'],  2)}",
+        f"cy{_fmt(params['cy'],  2)}",
+        f"cz{_fmt(params['cz'],  2)}",
+    ]
+    return '_'.join(parts)
+
+
+# ──────────────────────────────────────────────────────────────
+#  1 タスク実行
+# ──────────────────────────────────────────────────────────────
+
+def _exec_job(out_dir: Path, monomer: str, params: dict,
+              symmetry: str, is_test: bool) -> str:
+    """mol2・tleap 入力を書き出してバックグラウンドシェルジョブを起動。"""
+    if symmetry == 'screw':
+        from auto_opt.stacking.make_io_stacking_screw import get_pairs_xyzR, get_mol2_lines
     else:
-        return 4.0
+        from auto_opt.stacking.make_io_stacking import get_pairs_xyzR, get_mol2_lines
 
-def get_amber_energy_for_cz(cz_val, cx_val, cy_val, base_params, auto_dir, monomer_name):
-    params = base_params.copy()
-    params.update({'cx': cx_val, 'cy': cy_val, 'cz': float(cz_val)})
-    
-    out_file = exec_gjf_stacking(auto_dir, monomer_name, params, in_file="FF_calc.in", isTest=False)
-    out_path = os.path.join(auto_dir, 'amber', out_file)
-    try:
-        energy_list = amber_get_E(out_path)
-        return float(energy_list[0])
-    except Exception:
-        return 9999.0
+    base         = _base_name(monomer, params, symmetry)
+    pairs        = get_pairs_xyzR(monomer, params)
+    monomer_mol2 = str(_guess_mol2_path(monomer))
+    frcmod       = f"{monomer}_gaff2.frcmod"
+
+    parmchk2 = get_amber_tool('parmchk2')
+    tleap    = get_amber_tool('tleap')
+    sander   = get_amber_tool('sander')
+
+    cmds: List[str] = [
+        f'if [ ! -f "{frcmod}" ]; then '
+        f'"{parmchk2}" -s gaff2 -i "{monomer_mol2}" -f mol2 -o "{frcmod}"; fi',
+    ]
+
+    for i, dimer in enumerate(pairs):
+        fn       = f"{base}_p{i}"
+        mol2_txt = "".join(get_mol2_lines(dimer, monomer))
+        (out_dir / f"{fn}.mol2").write_text(mol2_txt)
+
+        tleap_txt = (
+            "source leaprc.gaff2\n"
+            f"loadamberparams {frcmod}\n"
+            f"MOL = loadmol2 {monomer_mol2}\n"
+            f"SYS = loadmol2 {fn}.mol2\n"
+            f"saveamberparm SYS {fn}.prmtop {fn}.inpcrd\n"
+            "quit\n"
+        )
+        (out_dir / f"{fn}_tleap.in").write_text(tleap_txt)
+
+        cmds += [
+            f'"{tleap}" -f {fn}_tleap.in > {fn}_tleap.out',
+            f'"{sander}" -O -i FF_calc.in -o {fn}.out '
+            f'-p {fn}.prmtop -c {fn}.inpcrd -r {fn}.rst7',
+        ]
+
+    done_path = out_dir / f"{base}.done"
+    cmds.append(f'touch "{done_path}"')
+
+    job_path = out_dir / f"job_{base}.sh"
+    job_path.write_text(
+        "#!/bin/bash\n"
+        f"cd {out_dir}\n"
+        + "\n".join(cmds) + "\n"
+    )
+    job_path.chmod(0o755)
+
+    if not is_test:
+        subprocess.Popen(
+            [str(job_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    return base
+
+
+def _read_results(out_dir: Path, base: str,
+                  n_pairs: int, calc_E_total) -> List[float]:
+    """done マークがあれば全ペアのエネルギーリストを返す。未完了は []。"""
+    if not (out_dir / f"{base}.done").exists():
+        return []
+    E_list = []
+    for i in range(n_pairs):
+        try:
+            E_list.append(float(amber_get_E(str(out_dir / f"{base}_p{i}.out"))[0]))
+        except Exception:
+            E_list.append(99999.0)
+    return E_list
+
+
+# ──────────────────────────────────────────────────────────────
+#  メインプロセス
+# ──────────────────────────────────────────────────────────────
 
 def main_process(args):
-    auto_dir = str(Path(args.auto_dir).resolve()) 
-    _prepare_amber_resources(auto_dir)
-    
-    csv_path = Path(args.input_csv).resolve()
-    df_input = pd.read_csv(csv_path)
-    
-    out_csv_path = os.path.join(auto_dir, 'cy_scan_results.csv')
-    
-    calculated_keys = set()
-    if os.path.exists(out_csv_path) and not args.isTest:
-        df_existing = pd.read_csv(out_csv_path)
-        print(f"既存の計算結果 '{out_csv_path}' を読み込みました。続きから再開します。")
-        for _, r in df_existing.iterrows():
-            cx_val_hist = round(r['cx'], 2) if 'cx' in r else 0.0
-            # ★修正: a, b, z をキーに追加！
-            key = (round(r['a'], 2), round(r['b'], 2), round(r['alpha'], 2), round(r['z'], 2), round(r['phi'], 2), round(r['theta2'], 2), cx_val_hist, round(r['cy'], 2))
-            calculated_keys.add(key)
+    if args.symmetry == 'screw':
+        from auto_opt.stacking.make_io_stacking_screw import N_PAIRS, calc_E_total
+    else:
+        from auto_opt.stacking.make_io_stacking import N_PAIRS, calc_E_total
 
-    print(f"入力CSVから {len(df_input)} 件の構造を読み込みました。")
-    print(f"モード: {args.mode} スキャンを開始します (cz精度: {args.cz_tol} Å)...\n")
-    
-    for index, row in df_input.iterrows():
-        a_opt = row['a']; b_opt = row['b']; z_opt = row['z']
-        alpha_opt = row['alpha']; phi_opt = row['phi']
-        
-        print(f"\n--- 構造 {index+1}: a={a_opt}, b={b_opt}, alpha={alpha_opt}, z={z_opt}, phi={phi_opt} ---")
-        
-        for theta2_val in [alpha_opt]:#, -alpha_opt]:
-            base_params = {
-                'a': a_opt, 'b': b_opt, 'alpha': alpha_opt, 
-                'z': z_opt, 'phi': phi_opt,
-                'theta1': alpha_opt, 'theta2': theta2_val 
-            }
-            print(f"  >> theta2 = {theta2_val} のスキャンを開始")
+    auto_dir  = Path(args.auto_dir).resolve()
+    out_amber = auto_dir / 'amber'
+    out_amber.mkdir(parents=True, exist_ok=True)
 
-            step_size_x = args.step_x
-            step_size_y = args.step_y
+    if _FF_CALC.exists():
+        shutil.copy2(_FF_CALC, out_amber / 'FF_calc.in')
 
-            if args.mode == '1D':
-                cx_list = [0.0]
-            elif args.mode == '2D':
-                num_points_x = int(a_opt / step_size_x) + 1
-                cx_list = np.linspace(-a_opt/2, a_opt/2, num_points_x)
+    df_init   = pd.read_csv(auto_dir / 'step1_init_params.csv')
+    step1_csv = auto_dir / 'step1.csv'
+    fkeys     = _FIXED_KEYS[args.symmetry]
 
-            num_points_y = int(b_opt / step_size_y) + 1
-            cy_list = np.linspace(-b_opt/2, b_opt/2, num_points_y)
+    # 初期状態を構築
+    fixed_by_key: Dict[tuple, dict] = {}
+    job_queue:    List[dict]         = []
+    running:      Dict[str, dict]    = {}
+    done_czs:     Dict[tuple, dict]  = {}
+    queued_czs:   Dict[tuple, Set]   = {}
+    group_status: Dict[tuple, str]   = {}
+    results:      List[dict]         = []
 
-            for cx in cx_list:
-                cx_val = np.round(cx, 2)
-                for cy in cy_list:
-                    cy_val = np.round(cy, 2)
-                    
-                    # ★修正: a, b, z をキーに追加！
-                    current_key = (round(a_opt, 2), round(b_opt, 2), round(alpha_opt, 2), round(z_opt, 2), round(phi_opt, 2), round(theta2_val, 2), cx_val, cy_val)
-                    if current_key in calculated_keys:
-                        print(f"    Skip: cx={cx_val:5.2f}, cy={cy_val:5.2f} は計算済みのためスキップします。")
-                        continue
-                    
-                    params_for_vdw = base_params.copy()
-                    params_for_vdw.update({'cx': cx_val, 'cy': cy_val, 'cz': 0.0})
-                    
-                    cz_vdw = estimate_vdw_cz(args.monomer_name, params_for_vdw)
-                    search_bounds = (cz_vdw - 1.0, cz_vdw + 1.0)
-                    
-                    res = minimize_scalar(
-                        get_amber_energy_for_cz, 
-                        args=(cx_val, cy_val, base_params, auto_dir, args.monomer_name),
-                        bounds=search_bounds,
-                        method='bounded',
-                        options={'xatol': args.cz_tol} 
-                    )
-                    
-                    best_cz = res.x
-                    best_E = res.fun
-                    v_z = cy_val * (2.0 * z_opt / b_opt)
-                        
-                    d_rise = best_cz - v_z
-                    d_vdw_rise = cz_vdw - v_z
-                    
-                    res_dict = base_params.copy()
-                    res_dict.update({
-                        'cx': cx_val, 'cy': cy_val, 'cz_abs': best_cz,    
-                        'd_vdw': d_vdw_rise, 'd_opt': d_rise, 'E_total': best_E
-                    })
-                    
-                    if not args.isTest:
-                        df_single = pd.DataFrame([res_dict])
-                        if not os.path.exists(out_csv_path):
-                            df_single.to_csv(out_csv_path, index=False)
-                        else:
-                            df_single.to_csv(out_csv_path, mode='a', header=False, index=False)
-                    
-                    calculated_keys.add(current_key)
-                    print(f"    Done: cx={cx_val:5.2f}, cy={cy_val:5.2f} | d={d_rise:.2f} | E={best_E:.4f}")
+    for _, row in df_init.iterrows():
+        key = _group_key(row.to_dict(), args.symmetry)
+        fixed_by_key[key] = {k: row[k] for k in fkeys if k in row.index}
+        done_czs[key]     = {}
+        queued_czs[key]   = set()
+        group_status[key] = 'Working'
 
-    print(f"\nすべての計算が完了しました！")
-    
-    if not args.isTest and os.path.exists(out_csv_path):
-        df_res = pd.read_csv(out_csv_path)
-        if 'cx' not in df_res.columns:
-            df_res['cx'] = 0.0
-        # ★修正: a, b, z をソートと重複削除のキーに追加！
-        sort_keys = ['a', 'b', 'alpha', 'z', 'phi', 'theta2', 'cx', 'cy']
-        df_res = df_res.drop_duplicates(subset=sort_keys, keep='last')
-        df_res = df_res.sort_values(sort_keys)
-        df_res.to_csv(out_csv_path, index=False)
-        print(f"結果をソートして '{out_csv_path}' に最終保存しました。")
+        cz_vdw = round(float(row['cz']), 1)
+        cx     = round(float(row['cx']), 1)
+        cy     = round(float(row['cy']), 1)
+        for d in (-0.2, -0.1, 0.0, 0.1, 0.2):
+            cz = round(cz_vdw + d, 1)
+            job_queue.append({'cx': cx, 'cy': cy, 'cz': cz, **fixed_by_key[key]})
+            queued_czs[key].add(cz)
+
+    print(f"初期キュー: {len(job_queue)} タスク / {len(group_status)} グループ")
+    last_save = time.time()
+
+    while True:
+        # ── 完了チェック ───────────────────────────────────────
+        finished: List[str] = []
+        for base, task in running.items():
+            E_list = _read_results(out_amber, base, N_PAIRS, calc_E_total)
+            if not E_list:
+                continue
+            E   = calc_E_total(E_list)
+            key = _group_key(task, args.symmetry)
+            done_czs[key][task['cz']] = E
+            r = dict(task, E=E, status='Done', file_name=base)
+            for i, e in enumerate(E_list):
+                r[f'E{i+1}'] = e
+            results.append(r)
+            finished.append(base)
+        for b in finished:
+            del running[b]
+
+        # ── 谷底判定・追加投入 ────────────────────────────────
+        for key, czs in done_czs.items():
+            if group_status[key] == 'Done' or not czs:
+                continue
+            best = min(czs, key=czs.get)
+            needs = [round(best + d, 1) for d in (-0.1, 0.1) if round(best + d, 1) not in czs]
+            if not needs:
+                group_status[key] = 'Done'
+                continue
+            fixed  = fixed_by_key[key]
+            cx_k   = key[_GROUP_COLS[args.symmetry].index('cx')]
+            cy_k   = key[_GROUP_COLS[args.symmetry].index('cy')]
+            for nb in needs:
+                if nb not in queued_czs[key]:
+                    job_queue.append({'cx': cx_k, 'cy': cy_k, 'cz': nb, **fixed})
+                    queued_czs[key].add(nb)
+
+        # ── ジョブ投入 ────────────────────────────────────────
+        while len(running) < args.num_nodes and job_queue:
+            task = job_queue.pop(0)
+            base = _exec_job(out_amber, args.monomer_name, task,
+                             args.symmetry, args.isTest)
+            running[base] = task
+
+        # ── 定期保存 ──────────────────────────────────────────
+        now = time.time()
+        if now - last_save > 10.0 and results:
+            pd.DataFrame(results).to_csv(step1_csv, index=False)
+            last_save = now
+            done_n = sum(s == 'Done' for s in group_status.values())
+            print(f"[{time.strftime('%H:%M:%S')}] "
+                  f"{done_n}/{len(group_status)} 完了 "
+                  f"(実行中: {len(running)}, キュー: {len(job_queue)})")
+
+        # ── 終了判定 ──────────────────────────────────────────
+        if (all(s == 'Done' for s in group_status.values())
+                and not running and not job_queue):
+            if results:
+                pd.DataFrame(results).to_csv(step1_csv, index=False)
+            print("すべての探索が完了しました。")
+            break
+
+        time.sleep(1)
+
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--auto-dir', type=str, required=True)
-    parser.add_argument('--monomer-name', type=str, required=True)
-    parser.add_argument('--input-csv', type=str, required=True)
-    parser.add_argument('--cz-tol', type=float, default=0.1, help="SciPyでの cz 最適化の収束条件")
-    parser.add_argument('--mode', type=str, choices=['1D', '2D'], default='1D', help="スキャンモード (1D or 2D)")
-    parser.add_argument('--step-x', type=float, default=0.1, help="cx のスキャン間隔")
-    parser.add_argument('--step-y', type=float, default=0.1, help="cy のスキャン間隔")
-    parser.add_argument('--isTest', action='store_true')
-    args = parser.parse_args()
-    
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--isTest',       action='store_true')
+    ap.add_argument('--auto-dir',     required=True)
+    ap.add_argument('--monomer-name', required=True)
+    ap.add_argument('--symmetry',     choices=['glide', 'screw'], required=True)
+    ap.add_argument('--num-nodes',    type=int, required=True)
+    args = ap.parse_args()
+
+    print('---- driver_stacking start ----')
     main_process(args)
+    print('---- driver_stacking finish ----')
