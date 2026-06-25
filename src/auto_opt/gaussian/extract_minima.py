@@ -40,6 +40,45 @@ STEP_BT2 = 0.1
 #   共通ユーティリティ
 # =========================================================
 
+def _assign_structure_type_from_init(
+    df_result: pd.DataFrame,
+    init_csv: Path,
+    group_keys: list[str],
+    opt_keys: list[str],
+) -> pd.DataFrame:
+    """
+    step1_init_params.csv の structure_type を最近傍マッチングで引き継ぐ。
+    同じ group_keys でグループ化し、opt_keys 空間で最近傍の初期点を探す。
+    """
+    df_init = pd.read_csv(init_csv)
+    if 'structure_type' not in df_init.columns:
+        return df_result
+
+    result_types = []
+    for _, row in df_result.iterrows():
+        # 同じグループの初期点を抽出
+        mask = pd.Series([True] * len(df_init), index=df_init.index)
+        for k in group_keys:
+            if k in df_init.columns:
+                mask &= np.isclose(df_init[k], row[k], atol=1e-5)
+        cands = df_init[mask]
+
+        if cands.empty:
+            result_types.append('unknown')
+            continue
+
+        # opt_keys 空間でユークリッド距離が最小の初期点を選ぶ
+        dists = sum(
+            (cands[k] - row[k]) ** 2
+            for k in opt_keys if k in cands.columns and k in row.index
+        )
+        result_types.append(cands.loc[dists.idxmin(), 'structure_type'])
+
+    df_result = df_result.copy()
+    df_result['structure_type'] = result_types
+    return df_result
+
+
 def _read_step1_auto(step1_csv: Path, auto_dir: Optional[Path]) -> pd.DataFrame:
     """
     step1_csv が実在すればそれを読む。
@@ -155,7 +194,16 @@ def extract_glide(step1_csv: Path, out_csv: Path,
         df_new['dft_status'] = 'NotYet'
         print(f"[extract] {len(df_new)} 点を新規作成")
 
-    df_new = _classify_structure_by_a_rank(df_new)
+    # step1_init_params.csv があれば structure_type を引き継ぐ、なければ a 値で分類
+    init_csv = (out_csv.parent / 'step1_init_params.csv')
+    if init_csv.exists():
+        df_new = _assign_structure_type_from_init(
+            df_new, init_csv,
+            group_keys=['alpha', 'phi', 'z'],
+            opt_keys=['a', 'b'],
+        )
+    else:
+        df_new = _classify_structure_by_a_rank(df_new)
 
     out_cols = ['alpha', 'phi', 'a', 'b', 'z', 'structure_type', 'dft_status'] + energy_cols
     extra    = [c for c in df_new.columns if c not in out_cols]
@@ -320,7 +368,15 @@ def extract_screw(step1_csv: Path, out_csv: Path,
         df_new['dft_status'] = 'NotYet'
         print(f"[extract] {len(df_new)} 点を新規作成")
 
-    df_new = _classify_structure_by_a_rank(df_new)
+    init_csv = out_csv.parent / 'step1_init_params.csv'
+    if init_csv.exists():
+        df_new = _assign_structure_type_from_init(
+            df_new, init_csv,
+            group_keys=['alpha', 'beta', 'phi', 'z'],
+            opt_keys=['a', 'b', 'bt1', 'bt2'],
+        )
+    else:
+        df_new = _classify_structure_by_a_rank(df_new)
 
     out_cols = ['alpha', 'beta', 'phi', 'a', 'b', 'bt1', 'bt2', 'z',
                 'structure_type', 'dft_status'] + energy_cols
