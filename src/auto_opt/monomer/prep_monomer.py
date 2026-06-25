@@ -175,7 +175,7 @@ def pca_align(atoms: List[Tuple[str, float, float, float]]
 
 def write_gaussian_inp_for_opt(
     xyz_path: Path, monomer: str, out_inp: Path,
-    level: str = 'B3LYP/6-31G(d)',
+    level: str = 'B3LYP/6-31G(d) SCF=Tight',
     charge: int = 0, mult: int = 1,
     nproc: int = 40,
 ) -> Path:
@@ -477,7 +477,7 @@ def _parse_args() -> Args:
                     help='SGE キュー名（省略時は ~/.auto_opt.yaml から取得）')
     ap.add_argument('--nproc',    type=int, default=None,
                     help='Gaussian nproc（省略時は ~/.auto_opt.yaml から取得）')
-    ap.add_argument('--opt-level',  default='B3LYP/6-31G(d)',
+    ap.add_argument('--opt-level',  default='B3LYP/6-31G(d) SCF=Tight',
                     help='ジオメトリ最適化の計算レベル')
     ap.add_argument('--esp-level',  default='HF/6-31G(d)',
                     help='ESP 計算の計算レベル')
