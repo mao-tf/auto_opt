@@ -60,6 +60,12 @@ with st.sidebar:
     y_options = [c for c in axis_candidates if c != x_col]
     y_col = st.selectbox("Y 軸", y_options, index=0)
 
+    st.subheader("スタッキング")
+    scan_axis = st.selectbox("スキャン軸", axis_candidates, key="scan_axis_sel")
+    stacking_uploaded = st.file_uploader(
+        "stacking_results.csv (任意)", type="csv", key="stacking_csv"
+    )
+
     fix_cols = [c for c in axis_candidates if c not in (x_col, y_col)]
     fix_vals: dict[str, float] = {}
     if fix_cols:
@@ -78,6 +84,8 @@ with st.sidebar:
 
 if 'sel' not in st.session_state:
     st.session_state.sel = {}
+if 'stacking_list' not in st.session_state:
+    st.session_state.stacking_list = []
 
 # 軸や固定パラメータが変わったらクリック選択をリセット
 _state_key = (x_col, y_col, tuple(sorted(fix_vals.items())))
@@ -230,3 +238,82 @@ with col_3d:
             file_name=f"{monomer_name}_cluster.xyz",
             mime="text/plain",
         )
+
+# ──────────────────────────────────────────────
+#  スタッキング候補リスト
+# ──────────────────────────────────────────────
+
+st.divider()
+st.subheader("スタッキング候補リスト")
+st.caption(
+    f"スキャン軸: **{scan_axis}** | "
+    "ヒートマップで構造を選択して「追加」してください"
+)
+
+c_add, c_clear = st.columns([1, 1])
+with c_add:
+    if st.button("現在の構造を追加"):
+        if not rows.empty:
+            row_data = (
+                rows.loc[rows['E'].idxmin()] if len(rows) > 1 else rows.iloc[0]
+            ).to_dict()
+            scan_val = row_data.get(scan_axis)
+            existing = [r.get(scan_axis) for r in st.session_state.stacking_list]
+            if scan_val not in existing:
+                st.session_state.stacking_list.append(row_data)
+                st.rerun()
+            else:
+                st.warning(f"{scan_axis}={scan_val} は既にリストにあります")
+with c_clear:
+    if st.button("リストをクリア"):
+        st.session_state.stacking_list = []
+        st.rerun()
+
+if st.session_state.stacking_list:
+    df_candidates = (
+        pd.DataFrame(st.session_state.stacking_list)
+        .sort_values(scan_axis)
+        .reset_index(drop=True)
+    )
+    st.dataframe(df_candidates, use_container_width=True)
+    st.download_button(
+        label="スタッキング候補 CSV ダウンロード",
+        data=df_candidates.to_csv(index=False),
+        file_name="stacking_candidates.csv",
+        mime="text/csv",
+    )
+
+# ──────────────────────────────────────────────
+#  スタッキングエネルギープロット
+# ──────────────────────────────────────────────
+
+if stacking_uploaded is not None:
+    st.divider()
+    st.subheader(f"スタッキングエネルギープロット ({scan_axis} vs E)")
+    df_stack_res = pd.read_csv(stacking_uploaded)
+
+    x_col_stack = scan_axis if scan_axis in df_stack_res.columns else df_stack_res.columns[0]
+    fig_stack = go.Figure()
+    for col, color, name in [
+        ('E_layer', 'royalblue', '層内 E_layer'),
+        ('E_stack', 'tomato',    '層間 E_stack'),
+        ('E_total', 'seagreen',  '合計 E_total'),
+    ]:
+        if col in df_stack_res.columns:
+            fig_stack.add_trace(go.Scatter(
+                x=df_stack_res[x_col_stack], y=df_stack_res[col],
+                mode='lines+markers', name=name,
+                line=dict(color=color),
+            ))
+    fig_stack.update_layout(
+        xaxis_title=x_col_stack,
+        yaxis_title='E (kcal/mol)',
+        margin=dict(l=20, r=20, t=30, b=20),
+    )
+    st.plotly_chart(fig_stack, use_container_width=True)
+    st.download_button(
+        label="スタッキング結果 CSV ダウンロード",
+        data=df_stack_res.to_csv(index=False),
+        file_name="stacking_results.csv",
+        mime="text/csv",
+    )
