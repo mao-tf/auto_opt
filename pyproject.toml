@@ -22,7 +22,7 @@ dev = [
   "pytest>=7",
 ]
 viz = [
-  "streamlit>=1.33",
+  "streamlit>=1.35",
   "plotly>=5.0",
   "py3Dmol>=2.0",
 ]
