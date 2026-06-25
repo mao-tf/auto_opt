@@ -298,14 +298,15 @@ def _wait_for_normal_termination(log_path: Path, poll_interval: int = 30) -> Non
 def resp_mol2_from_gesp(gesp_dat: Path, xyz_path: Path,
                         out_mol2: Path, residue: str = 'MOL') -> None:
     antechamber = _amber_tool('antechamber')
-    out_mol2.parent.mkdir(parents=True, exist_ok=True)
+    work = out_mol2.parent
+    work.mkdir(parents=True, exist_ok=True)
     cmds = [
         f'{antechamber} -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2 -ic {xyz_path} -fc xyz',
         f'{antechamber} -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2',
     ]
     for c in cmds:
         try:
-            _run(c)
+            _run(c, cwd=work)
             print(f'[mol2] wrote {out_mol2}')
             return
         except Exception:
