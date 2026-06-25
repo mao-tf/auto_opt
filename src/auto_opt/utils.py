@@ -120,7 +120,9 @@ def filter_df(df: "pd.DataFrame", dict_filter: dict) -> "pd.DataFrame":
     """各キーの値で DataFrame をフィルタリング。float は np.isclose で比較。"""
     for k, v in dict_filter.items():
         if isinstance(v, float):
-            df = df[np.isclose(df[k], v, atol=1e-5)]
+            # 空CSVを読み返したとき列がobject型になる場合があるので数値変換してから比較
+            col = pd.to_numeric(df[k], errors='coerce')
+            df = df[np.isclose(col, v, atol=1e-5)]
         else:
             df = df[df[k] == v]
     return df
