@@ -67,18 +67,35 @@ def _vdw_min_cz(xyz1: np.ndarray, R1: np.ndarray,
     return float(np.max(dz[mask] + np.sqrt(sr2[mask] - dxy2[mask])))
 
 
-def _v_list_p(a, b):
+def _v_list_p_screw(a, b):
+    # screw: b 方向の隣は同じ z 高さ
     return [
-        [0, 0, 0], [0, b, 0], [0, -b, 0],
-        [a, 0, 0], [-a, 0, 0],
-        [a, b, 0], [-a, b, 0], [a, -b, 0], [-a, -b, 0],
+        [0,  0, 0], [0,  b, 0], [0,  -b,  0],
+        [a,  0, 0], [-a, 0, 0],
+        [a,  b, 0], [-a,  b, 0], [a,  -b, 0], [-a, -b, 0],
+    ]
+
+
+def _v_list_p_glide(a, b, z):
+    # glide: b 方向の隣は z が 2z ずれる
+    return [
+        [0,  0,    0], [0,  b,  2*z], [0,  -b,  -2*z],
+        [a,  0,    0], [-a, 0,    0],
+        [a,  b,  2*z], [-a,  b,  2*z], [a,  -b, -2*z], [-a, -b, -2*z],
     ]
 
 
 def _v_list_t_screw(a, bt1, bt2, z):
     return [
-        [a/2,  bt1,  z], [a/2,  -bt2,  z],
-        [-a/2, -bt2, z], [-a/2,  bt1,  z],
+        [ a/2,  bt1,  z], [ a/2, -bt2,  z],
+        [-a/2, -bt2,  z], [-a/2,  bt1,  z],
+    ]
+
+
+def _v_list_t_glide(a, b, z):
+    return [
+        [ a/2,  b/2,  z], [-a/2,  b/2,  z],
+        [ a/2, -b/2, -z], [-a/2, -b/2, -z],
     ]
 
 
@@ -103,13 +120,21 @@ def _compute_cz(row: pd.Series,
     v2 = np.array([0., cy, 0.])
     d_list = []
 
-    for v1 in _v_list_p(a, b):
-        v1a = np.array(v1)
-        d_list.append(_vdw_min_cz(rot1_p, R1, rot2_p, R2, v1a,  v2))
-        d_list.append(_vdw_min_cz(rot1_m, R1, rot2_m, R2, v1a,  v2))
-
     if symmetry == 'screw':
+        for v1 in _v_list_p_screw(a, b):
+            v1a = np.array(v1)
+            d_list.append(_vdw_min_cz(rot1_p, R1, rot2_p, R2, v1a,  v2))
+            d_list.append(_vdw_min_cz(rot1_m, R1, rot2_m, R2, v1a,  v2))
         for v1 in _v_list_t_screw(a, bt1, bt2, -z):
+            v1a = np.array(v1)
+            d_list.append(_vdw_min_cz(rot1_m, R1, rot2_p, R2, v1a,  v2))
+            d_list.append(_vdw_min_cz(rot1_p, R1, rot2_m, R2, v1a, -v2))
+    else:  # glide
+        for v1 in _v_list_p_glide(a, b, z):
+            v1a = np.array(v1)
+            d_list.append(_vdw_min_cz(rot1_p, R1, rot2_p, R2, v1a,  v2))
+            d_list.append(_vdw_min_cz(rot1_m, R1, rot2_m, R2, v1a,  v2))
+        for v1 in _v_list_t_glide(a, b, -z):
             v1a = np.array(v1)
             d_list.append(_vdw_min_cz(rot1_m, R1, rot2_p, R2, v1a,  v2))
             d_list.append(_vdw_min_cz(rot1_p, R1, rot2_m, R2, v1a, -v2))
