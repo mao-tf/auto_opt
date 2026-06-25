@@ -54,11 +54,13 @@ def init_process(args):
             cmd += ' --isTest'
 
         script = make_job_script(cmd, queue=qname, queue_instance=qi,
-                                 job_name=f"{args.monomer_name}_phi{phi}")
+                                 job_name=f"{args.monomer_name}_phi{phi}",
+                                 stdout=str(subdir / 'job.sh.o'),
+                                 stderr=str(subdir / 'job.sh.e'))
         job_path = subdir / 'job.sh'
         job_path.write_text(script)
 
-        subprocess.run(['qsub', str(job_path)])
+        subprocess.run(['qsub', 'job.sh'], cwd=str(subdir))
         print(f"  phi={phi} → {qi}  (num_nodes={num_nodes})")
 
         prefer_queue = [q for q in ['gr1.q', 'gr2.q'] if q != qname][0]
