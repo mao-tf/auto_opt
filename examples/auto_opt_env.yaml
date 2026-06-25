@@ -21,3 +21,12 @@ queues:
 max_concurrent_jobs: 6  # 同時実行ジョブ数の上限（自分のジョブ合計）
 poll_interval: 30       # 空きノード確認の間隔（秒）
 nproc_reserve: 2        # OS 用に確保するコア数（num_nodes = nproc - nproc_reserve）
+
+# ── AmberTools パス ─────────────────────────────
+# PATH に antechamber/tleap/sander が通っていれば省略可。
+# conda 環境や module を使う場合はフルパスを指定する。
+amber_tools:
+  antechamber: ~/anaconda3/envs/amber/bin/antechamber
+  parmchk2:    ~/anaconda3/envs/amber/bin/parmchk2
+  tleap:       ~/anaconda3/envs/amber/bin/tleap
+  sander:      ~/anaconda3/envs/amber/bin/sander

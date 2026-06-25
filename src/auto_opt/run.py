@@ -33,10 +33,47 @@ import pandas as pd
 import yaml
 
 # 実行ステップの順序
-STEPS = ['vdw', 'amber', 'collect']
+STEPS = ['monomer', 'vdw', 'amber', 'collect']
 
 # デフォルト monomer ディレクトリ（パッケージ相対）
 _MONOMER_DIR = Path(__file__).resolve().parents[2] / "data" / "monomer"
+
+
+def run_monomer_step(config: dict, dry_run: bool = False) -> None:
+    """モノマー準備: opt → RESP → amber_ref を連続実行する。"""
+    from auto_opt.monomer.prep_monomer import run_all, MONO_DIR, AMBER_REF_DIR
+
+    mon  = config['monomer']
+    mol2 = MONO_DIR / f'{mon}.mol2'
+    ref  = AMBER_REF_DIR / f'{mon}_gaff2.out'
+
+    if mol2.exists() and ref.exists():
+        print(f'[monomer] {mol2.name} と {ref.name} が既に存在します。スキップします。')
+        return
+
+    if 'monomer_xyz' not in config:
+        raise SystemExit(
+            f'[monomer] run_config.yaml に monomer_xyz が必要です。\n'
+            f'  monomer_xyz: data/monomer/{mon}_raw.xyz'
+        )
+
+    xyz_path = Path(config['monomer_xyz'])
+    if not xyz_path.exists():
+        raise SystemExit(f'[monomer] XYZ ファイルが見つかりません: {xyz_path}')
+
+    if dry_run:
+        print(f'[dry-run] prep_monomer.run_all({mon}, {xyz_path})')
+        return
+
+    run_all(
+        monomer=mon,
+        xyz_path=xyz_path,
+        make_amber_ref=True,
+        charge=config.get('charge', 0),
+        mult=config.get('mult', 1),
+        opt_level=config.get('opt_level', 'B3LYP/6-31G(d)'),
+        esp_level=config.get('esp_level', 'HF/6-31G(d)'),
+    )
 
 
 def _run(args: list[str], dry_run: bool = False) -> None:
@@ -105,6 +142,13 @@ def run_pipeline(
     steps_to_run = set(STEPS[start_i: stop_i + 1])
 
     Path(auto_dir).mkdir(parents=True, exist_ok=True)
+
+    # ── Step 0: モノマー準備 ──────────────────────────────────────────
+    if 'monomer' in steps_to_run:
+        print("\n" + "=" * 60)
+        print(f"  Step 0: モノマー準備  (opt → RESP → amber_ref)")
+        print("=" * 60)
+        run_monomer_step(config, dry_run=dry_run)
 
     # ── Step 1: VdW スウィープ ────────────────────────────────────────
     if 'vdw' in steps_to_run:

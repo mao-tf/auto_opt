@@ -92,6 +92,20 @@ def _which(x: str) -> bool:
     return shutil.which(x) is not None
 
 
+def _amber_tool(name: str) -> str:
+    """AmberTools 実行ファイルのパスを返す（cluster.py 経由 → PATH フォールバック）。"""
+    try:
+        from auto_opt.cluster import get_amber_tool
+        return get_amber_tool(name)
+    except ImportError:
+        found = shutil.which(name)
+        if found is None:
+            raise SystemExit(
+                f'{name} が見つかりません。~/.auto_opt.yaml の amber_tools に設定してください。'
+            )
+        return found
+
+
 # ── XYZ / CSV IO ────────────────────────────────────────────────────────
 
 def read_xyz(xyz_path: Path) -> List[Tuple[str, float, float, float]]:
@@ -283,12 +297,11 @@ def _wait_for_normal_termination(log_path: Path, poll_interval: int = 30) -> Non
 
 def resp_mol2_from_gesp(gesp_dat: Path, xyz_path: Path,
                         out_mol2: Path, residue: str = 'MOL') -> None:
-    if not _which('antechamber'):
-        raise SystemExit('antechamber が見つかりません（AmberTools をロードしてください）')
+    antechamber = _amber_tool('antechamber')
     out_mol2.parent.mkdir(parents=True, exist_ok=True)
     cmds = [
-        f'antechamber -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2 -ic {xyz_path} -fc xyz',
-        f'antechamber -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2',
+        f'{antechamber} -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2 -ic {xyz_path} -fc xyz',
+        f'{antechamber} -i {gesp_dat} -fi gesp -o {out_mol2} -fo mol2 -c resp -rn {residue} -s 2',
     ]
     for c in cmds:
         try:
@@ -317,9 +330,9 @@ def write_tleap_and_run(mol2_path: Path, out_prefix: Path,
     lines += [f'saveamberparm MOL {prmtop.name} {inpcrd.name}\n', 'quit\n']
     tleap_in.write_text(''.join(lines), encoding='utf-8')
 
-    _run(f'parmchk2 -s gaff2 -i {mol2_path.name} -f mol2 -o {frcmod}',
+    _run(f'{_amber_tool("parmchk2")} -s gaff2 -i {mol2_path.name} -f mol2 -o {frcmod}',
          cwd=mol2_path.parent, check=False)
-    _run(f'tleap -f {tleap_in.name}', cwd=mol2_path.parent)
+    _run(f'{_amber_tool("tleap")} -f {tleap_in.name}', cwd=mol2_path.parent)
     return prmtop, inpcrd
 
 
@@ -344,12 +357,84 @@ def run_sander_energy(workdir: Path, base: str) -> Path:
     out    = workdir / f'{base}.out'
     ff     = _ensure_ff_calc_in(workdir)
     _run(
-        f'sander -O -i {ff.name} -o {out.name} -p {prmtop.name} -c {inpcrd.name}'
+        f'{_amber_tool("sander")} -O -i {ff.name} -o {out.name} -p {prmtop.name} -c {inpcrd.name}'
         f' -r min.rst -ref {inpcrd.name}',
         cwd=workdir,
     )
     print(f'[amber] energy -> {out}')
     return out
+
+
+# ── 公開 API ────────────────────────────────────────────────────────────
+
+def run_all(
+    monomer: str,
+    xyz_path: Path,
+    out_mol2: Optional[Path] = None,
+    out_csv: Optional[Path] = None,
+    make_amber_ref: bool = True,
+    queue: Optional[str] = None,
+    nproc: Optional[int] = None,
+    opt_level: str = 'B3LYP/6-31G(d)',
+    esp_level: str = 'HF/6-31G(d)',
+    charge: int = 0,
+    mult: int = 1,
+) -> None:
+    """opt → resp → amber_ref を連続実行する。run.py から直接呼べる。"""
+    MONO_DIR.mkdir(parents=True, exist_ok=True)
+    AMBER_REF_DIR.mkdir(parents=True, exist_ok=True)
+
+    _q, _n = _gauss_queue_nproc()
+    queue    = queue    or _q
+    nproc    = nproc    or _n
+    out_mol2 = out_mol2 or (MONO_DIR / f'{monomer}.mol2')
+    out_csv  = out_csv  or (MONO_DIR / f'{monomer}.csv')
+
+    work = MONO_DIR
+    # --- opt ---
+    inp_opt = work / f'{monomer}_opt.inp'
+    log_opt = work / f'{monomer}_opt.log'
+    write_gaussian_inp_for_opt(
+        xyz_path, monomer, inp_opt,
+        level=opt_level, charge=charge, mult=mult, nproc=nproc,
+    )
+    r1_opt = write_gaussian_qsub(inp_opt, nproc=nproc, queue=queue)
+    _run(['qsub', r1_opt.name], cwd=work)
+    print('[all] opt ジョブを投入しました。完了を待ちます...')
+    _wait_for_normal_termination(log_opt)
+    atoms = read_opt_xyz_from_log(log_opt)
+    atoms = pca_align(atoms)
+    out_xyz = work / f'{monomer}.xyz'
+    write_xyz(atoms, out_xyz,
+              comment=f'{monomer} optimized ({opt_level}), PCA aligned')
+    write_csv_from_xyz(out_xyz, out_csv)
+    # --- resp ---
+    base_esp = work / f'{monomer}_HF_esp'
+    inp_esp  = base_esp.with_suffix('.inp')
+    log_esp  = base_esp.with_suffix('.log')
+    gesp_dat = write_gaussian_inp_for_gesp(
+        out_xyz, monomer, inp_esp,
+        level=esp_level, charge=charge, mult=mult, nproc=nproc,
+    )
+    r1_esp = write_gaussian_qsub(inp_esp, nproc=nproc, queue=queue)
+    _run(['qsub', r1_esp.name], cwd=work)
+    print('[all] resp ジョブを投入しました。完了を待ちます...')
+    _wait_for_normal_termination(log_esp)
+    if not gesp_dat.exists():
+        cands = list(work.glob(f'{monomer}_HF_esp*.dat'))
+        if not cands:
+            raise SystemExit(f'GESP .dat が見つかりません: {gesp_dat}')
+        gesp_dat = cands[0]
+    resp_mol2_from_gesp(gesp_dat, out_xyz, out_mol2, residue=monomer)
+    # --- amber_ref ---
+    if make_amber_ref:
+        wd    = out_mol2.parent
+        base2 = f'{monomer}_gaff2'
+        write_tleap_and_run(out_mol2, wd / base2, frcmods=[])
+        tmp_out    = run_sander_energy(wd, base2)
+        single_out = AMBER_REF_DIR / f'{monomer}_gaff2.out'
+        single_out.write_text(tmp_out.read_text(), encoding='utf-8')
+        print(f'[amber_ref] wrote {single_out}')
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────
@@ -430,55 +515,19 @@ def main() -> None:
 
     # ── mode: all (opt → resp → amber_ref を自動で連続実行) ──────────────
     if args.mode == 'all':
-        work = MONO_DIR
-        # --- opt ---
-        inp_opt = work / f'{args.monomer}_opt.inp'
-        log_opt = work / f'{args.monomer}_opt.log'
-        write_gaussian_inp_for_opt(
-            args.xyz, args.monomer, inp_opt,
-            level=args.opt_level,
-            charge=args.charge, mult=args.mult, nproc=args.nproc,
+        run_all(
+            monomer=args.monomer,
+            xyz_path=args.xyz,
+            out_mol2=args.out_mol2,
+            out_csv=args.out_csv,
+            make_amber_ref=args.make_amber_ref,
+            queue=args.queue,
+            nproc=args.nproc,
+            opt_level=args.opt_level,
+            esp_level=args.esp_level,
+            charge=args.charge,
+            mult=args.mult,
         )
-        r1_opt = write_gaussian_qsub(inp_opt, nproc=args.nproc, queue=args.queue)
-        _run(['qsub', r1_opt.name], cwd=work)
-        print('[all] opt ジョブを投入しました。完了を待ちます...')
-        _wait_for_normal_termination(log_opt)
-        atoms = read_opt_xyz_from_log(log_opt)
-        atoms = pca_align(atoms)
-        out_xyz = work / f'{args.monomer}.xyz'
-        write_xyz(atoms, out_xyz,
-                  comment=f'{args.monomer} optimized ({args.opt_level}), PCA aligned')
-        write_csv_from_xyz(out_xyz, args.out_csv)
-        # --- resp ---
-        base_esp = work / f'{args.monomer}_HF_esp'
-        inp_esp  = base_esp.with_suffix('.inp')
-        log_esp  = base_esp.with_suffix('.log')
-        gesp_dat = write_gaussian_inp_for_gesp(
-            out_xyz, args.monomer, inp_esp,
-            level=args.esp_level,
-            charge=args.charge, mult=args.mult, nproc=args.nproc,
-        )
-        r1_esp = write_gaussian_qsub(inp_esp, nproc=args.nproc, queue=args.queue)
-        _run(['qsub', r1_esp.name], cwd=work)
-        print('[all] resp ジョブを投入しました。完了を待ちます...')
-        _wait_for_normal_termination(log_esp)
-        if not gesp_dat.exists():
-            cands = list(work.glob(f'{args.monomer}_HF_esp*.dat'))
-            if not cands:
-                raise SystemExit(f'GESP .dat が見つかりません: {gesp_dat}')
-            gesp_dat = cands[0]
-        resp_mol2_from_gesp(gesp_dat, out_xyz, args.out_mol2, residue=args.monomer)
-        # --- amber_ref ---
-        if args.make_amber_ref:
-            if not (_which('tleap') and _which('sander')):
-                raise SystemExit('tleap/sander が見つかりません')
-            wd    = args.out_mol2.parent
-            base2 = f'{args.monomer}_gaff2'
-            write_tleap_and_run(args.out_mol2, wd / base2, frcmods=[])
-            tmp_out    = run_sander_energy(wd, base2)
-            single_out = AMBER_REF_DIR / f'{args.monomer}_gaff2.out'
-            single_out.write_text(tmp_out.read_text(), encoding='utf-8')
-            print(f'[amber_ref] wrote {single_out}')
         return
 
     # ── mode: opt ────────────────────────────────────────────────────────
@@ -563,8 +612,6 @@ def main() -> None:
 
     # ── Amber 単分子エネルギー（resp / bcc 共通） ──────────────────────
     if args.make_amber_ref:
-        if not (_which('tleap') and _which('sander')):
-            raise SystemExit('tleap/sander が見つかりません')
         wd   = args.out_mol2.parent
         base2 = f'{args.monomer}_gaff2'
         write_tleap_and_run(args.out_mol2, wd / base2, frcmods=[])

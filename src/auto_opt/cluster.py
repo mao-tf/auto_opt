@@ -73,6 +73,24 @@ def load_env(config_path: str | Path | None = None) -> dict:
     return cfg
 
 
+def get_amber_tool(name: str) -> str:
+    """AmberTools 実行ファイルのパスを返す。
+    ~/.auto_opt.yaml の amber_tools セクション → PATH の順で探す。
+    """
+    import shutil
+    cfg = load_env()
+    path = cfg.get('amber_tools', {}).get(name)
+    if path:
+        return os.path.expanduser(path)
+    found = shutil.which(name)
+    if found is None:
+        raise SystemExit(
+            f'{name} が見つかりません。'
+            f'~/.auto_opt.yaml の amber_tools に {name} のパスを設定してください。'
+        )
+    return found
+
+
 def _queue_spec() -> Dict[str, dict]:
     """キュー名 → spec dict のマップ。"""
     return {q['name']: q for q in load_env()['queues']}
