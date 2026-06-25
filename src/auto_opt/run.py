@@ -104,13 +104,14 @@ def run_pipeline(
             print("\n" + "-" * 60)
             print("  Step 2: 初期点抽出  [glide のみ]")
             print("-" * 60)
-            vdw_csv  = str(Path(auto_dir) / f"vdW_r_contact_{monomer}.csv")
-            init_csv = str(Path(auto_dir) / "step1_init_params.csv")
+            vdw_csv    = str(Path(auto_dir) / f"vdW_r_contact_{monomer}.csv")
+            init_csv   = str(Path(auto_dir) / "step1_init_params.csv")
+            vdw_select = config.get('vdw_select', 'all')
             _run([
                 'auto_opt.vdw.extract_init_phi',
                 '--vdw-csv', vdw_csv,
                 '--out', init_csv,
-                '--select', 'all',
+                '--select', vdw_select,
             ], dry_run=dry_run)
 
         else:  # screw
