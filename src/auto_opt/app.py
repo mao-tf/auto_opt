@@ -35,6 +35,7 @@ with st.sidebar:
     uploaded = st.file_uploader("filtered_step1.csv", type="csv")
     monomer_name = st.text_input("モノマー名", value="BTBT")
     monomer_dir  = st.text_input("モノマーデータディレクトリ", value=_MONOMER_DIR)
+    mol_style = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
 
 if uploaded is None:
     st.info("サイドバーから filtered_step1.csv を読み込んでください。")
@@ -64,7 +65,11 @@ with st.sidebar:
         st.subheader("固定パラメータ")
         for col in fix_cols:
             unique = sorted(df[col].dropna().unique())
-            fix_vals[col] = st.select_slider(col, options=unique, value=unique[0])
+            if len(unique) == 1:
+                fix_vals[col] = unique[0]
+                st.text(f"{col} = {unique[0]}")
+            else:
+                fix_vals[col] = st.select_slider(col, options=unique, value=unique[0])
 
 # ──────────────────────────────────────────────
 #  ヒートマップ
@@ -84,12 +89,21 @@ col_map, col_3d = st.columns([1, 1])
 
 with col_map:
     st.subheader(f"エネルギーマップ ({x_col} vs {y_col})")
-    fig = px.imshow(
-        pivot,
-        color_continuous_scale='RdBu_r',
-        labels={'color': 'E (kcal/mol)'},
-        aspect='auto',
-    )
+    if pivot.shape[0] < 2 or pivot.shape[1] < 2:
+        # 点数が少ない場合はスキャッタープロット
+        fig = px.scatter(
+            df_fixed, x=x_col, y=y_col, color='E',
+            color_continuous_scale='RdBu_r',
+            labels={'color': 'E (kcal/mol)'},
+            hover_data=['E', 'a', 'b', 'z'],
+        )
+    else:
+        fig = px.imshow(
+            pivot,
+            color_continuous_scale='RdBu_r',
+            labels={'color': 'E (kcal/mol)'},
+            aspect='auto',
+        )
     fig.update_layout(margin=dict(l=20, r=20, t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -112,6 +126,12 @@ for col, val in sel_vals.items():
     mask &= np.isclose(df[col], val, atol=1e-5)
 rows = df[mask]
 
+# structure_type が複数あれば選択できるようにする
+if 'structure_type' in rows.columns and rows['structure_type'].nunique() > 1:
+    types = sorted(rows['structure_type'].dropna().unique())
+    sel_type = st.selectbox("structure_type", types)
+    rows = rows[rows['structure_type'] == sel_type]
+
 with col_3d:
     st.subheader("9分子クラスター 3D 表示")
     if rows.empty:
@@ -129,10 +149,14 @@ with col_3d:
             st.error(f"XYZ 生成エラー: {e}")
             st.stop()
 
-        # py3Dmol で表示
+        # py3Dmol で表示 (平行投影)
         view = py3Dmol.view(width=500, height=400)
         view.addModel(xyz_str, 'xyz')
-        view.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.3}})
+        if mol_style == "Space fill":
+            view.setStyle({'sphere': {'scale': 1.0}})
+        else:
+            view.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.3}})
+        view.setProjection('orthographic')
         view.zoomTo()
         st.components.v1.html(view._make_html(), height=420)
 

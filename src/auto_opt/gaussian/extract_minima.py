@@ -155,7 +155,9 @@ def extract_glide(step1_csv: Path, out_csv: Path,
         df_new['dft_status'] = 'NotYet'
         print(f"[extract] {len(df_new)} 点を新規作成")
 
-    out_cols = ['alpha', 'phi', 'a', 'b', 'z', 'dft_status'] + energy_cols
+    df_new = _classify_structure_by_a_rank(df_new)
+
+    out_cols = ['alpha', 'phi', 'a', 'b', 'z', 'structure_type', 'dft_status'] + energy_cols
     extra    = [c for c in df_new.columns if c not in out_cols]
     df_new   = (df_new[out_cols + extra]
                 .drop_duplicates()
