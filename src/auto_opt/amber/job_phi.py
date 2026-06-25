@@ -31,6 +31,11 @@ def init_process(args):
 
         subdir = auto_dir_root / str(phi)
         subdir.mkdir(parents=True, exist_ok=True)
+
+        if (subdir / 'job.sh').exists():
+            print(f"  phi={phi} → スキップ（既に投入済み）")
+            continue
+
         df_phi.to_csv(subdir / 'step1_init_params.csv', index=False)
 
         qname, qi, num_nodes = wait_for_free_node(
