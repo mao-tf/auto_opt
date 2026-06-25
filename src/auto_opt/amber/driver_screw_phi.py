@@ -64,7 +64,7 @@ def main_process(args):
 
 
 def listen(auto_dir, monomer_name, num_nodes, isTest):
-    mono_file = str(AMBER_REF / f'{monomer_name}_HF_esp_gaff2.out')
+    mono_file = str(AMBER_REF / f'{monomer_name}_gaff2.out')
     E_mono = amber_get_E(mono_file)[0]
 
     # 各ダイマーの計算完了チェックと E 更新

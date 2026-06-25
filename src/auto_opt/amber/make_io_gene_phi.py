@@ -35,8 +35,6 @@ def _next_section_idx(lines: List[str], start: int) -> int:
 def _guess_mol2_path(monomer_name: str) -> Path:
     cand1 = MONO / f"{monomer_name}.mol2"
     if cand1.exists(): return cand1
-    cand2 = MONO / f"{monomer_name}_HF_esp.mol2"
-    if cand2.exists(): return cand2
     gl = sorted(MONO.glob(f"{monomer_name}*.mol2"))
     if gl: return gl[0]
     raise FileNotFoundError(f"mol2 not found for monomer '{monomer_name}' under {MONO}")

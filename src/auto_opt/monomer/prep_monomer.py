@@ -389,7 +389,7 @@ def _parse_args() -> Args:
     mon = a.monomer
     tag = 'HF_esp' if a.mode == 'resp' else ('bcc' if a.mode == 'bcc' else 'opt')
     out_mol2 = (Path(os.path.expanduser(a.out_mol2)).resolve() if a.out_mol2
-                else MONO_DIR / f'{mon}_{tag}.mol2')
+                else MONO_DIR / f'{mon}.mol2')
     out_csv  = (Path(os.path.expanduser(a.out_csv)).resolve() if a.out_csv
                 else MONO_DIR / f'{mon}.csv')
 
@@ -498,11 +498,10 @@ def main() -> None:
         if not (_which('tleap') and _which('sander')):
             raise SystemExit('tleap/sander が見つかりません')
         wd   = args.out_mol2.parent
-        tag  = 'HF_esp' if args.mode == 'resp' else 'bcc'
-        base2 = f'{args.monomer}_{tag}_gaff2'
+        base2 = f'{args.monomer}_gaff2'
         write_tleap_and_run(args.out_mol2, wd / base2, frcmods=[])
         tmp_out = run_sander_energy(wd, base2)
-        single_out = AMBER_REF_DIR / f'{args.monomer}_{tag}_gaff2.out'
+        single_out = AMBER_REF_DIR / f'{args.monomer}_gaff2.out'
         single_out.write_text(tmp_out.read_text(), encoding='utf-8')
         print(f'[amber_ref] wrote {single_out}')
 
