@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import time
 from pathlib import Path
 import pandas as pd
 import yaml
@@ -172,8 +173,21 @@ def run_pipeline(
                 '--monomer-name', monomer,
             ], dry_run=dry_run)
 
-        print(f"\n[auto_opt] 全ジョブ投入完了。qsub ジョブ終了後に collect を実行してください:")
-        print(f"  python -m auto_opt.run --config <config> --start-from collect")
+        # collect も対象なら全ジョブ完了を待つ
+        if 'collect' in steps_to_run and not dry_run:
+            from auto_opt.cluster import load_env, get_my_job_count
+            poll = load_env().get('poll_interval', 60)
+            print(f"\n[auto_opt] 全ジョブ投入完了。終了を待機中... ({poll}秒ごとに確認)")
+            while True:
+                n = get_my_job_count()
+                if n == 0:
+                    print("[auto_opt] 全ジョブ完了。")
+                    break
+                print(f"  残りジョブ数: {n}  ({poll}秒後に再確認...)")
+                time.sleep(poll)
+        else:
+            print(f"\n[auto_opt] 全ジョブ投入完了。qsub ジョブ終了後に collect を実行してください:")
+            print(f"  python -m auto_opt.run --config <config> --start-from collect")
 
     # ── Step 5: 結果収集 ──────────────────────────────────────────────
     if 'collect' in steps_to_run:
