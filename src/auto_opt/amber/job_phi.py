@@ -4,39 +4,58 @@
 """
 python -m auto_opt.amber.job_phi --auto-dir runs/BTBT_glide --monomer-name BTBT
 
-phi ごとにサブディレクトリを作成し、空きノードを探して qsub で投入する。
+step1_init_params.csv を空きノード数で均等分割し、各ノードに qsub で投入する。
+phi が多い場合でも少ない場合でも自動的に適切な分割数を決定する。
 キュー仕様は ~/.auto_opt.yaml から読み込む（なければ組み込みデフォルト）。
 """
 
 import subprocess
 import time
+import numpy as np
 import pandas as pd
 import argparse
 from pathlib import Path
 
-from auto_opt.cluster import wait_for_free_node, make_job_script
+from auto_opt.cluster import (
+    load_env, get_free_queue_instances, wait_for_free_node, make_job_script
+)
+
+
+def _n_splits(df: pd.DataFrame, is_test: bool) -> int:
+    """空きノード数を調べて分割数を決める。"""
+    cfg = load_env()
+    n_rows = len(df)
+
+    if is_test:
+        return min(3, n_rows)
+
+    free = get_free_queue_instances()
+    n_free = sum(len(v) for v in free.values())
+    n_cap = cfg.get('max_concurrent_jobs', 6)
+    # 空きノードがなければ上限値を使う
+    n = n_free if n_free > 0 else n_cap
+    return min(n, n_rows)
 
 
 def init_process(args):
     auto_dir_root = Path(args.auto_dir).resolve()
     df_init = pd.read_csv(auto_dir_root / 'step1_init_params.csv')
-    phi_list = sorted(df_init['phi'].unique())
+
+    n = _n_splits(df_init, args.isTest)
+    df_chunks = [c for c in np.array_split(df_init, n) if not c.empty]
+    print(f"  {len(df_init)} 点を {len(df_chunks)} ノードに分割して投入します")
 
     prefer_queue = None
 
-    for i, phi in enumerate(phi_list):
-        df_phi = df_init[df_init['phi'] == phi]
-        if df_phi.empty:
-            continue
-
-        subdir = auto_dir_root / str(phi)
+    for i, df_chunk in enumerate(df_chunks):
+        subdir = auto_dir_root / f'split_{i}'
         subdir.mkdir(parents=True, exist_ok=True)
 
         if (subdir / 'job.sh').exists():
-            print(f"  phi={phi} → スキップ（既に投入済み）")
+            print(f"  split_{i} → スキップ（既に投入済み）")
             continue
 
-        df_phi.to_csv(subdir / 'step1_init_params.csv', index=False)
+        df_chunk.to_csv(subdir / 'step1_init_params.csv', index=False)
 
         qname, qi, num_nodes = wait_for_free_node(
             prefer_queue=prefer_queue,
@@ -54,14 +73,14 @@ def init_process(args):
             cmd += ' --isTest'
 
         script = make_job_script(cmd, queue=qname, queue_instance=qi,
-                                 job_name=f"{args.monomer_name}_phi{phi}",
+                                 job_name=f"{args.monomer_name}_split{i}",
                                  stdout=str(subdir / 'job.sh.o'),
                                  stderr=str(subdir / 'job.sh.e'))
         job_path = subdir / 'job.sh'
         job_path.write_text(script)
 
         subprocess.run(['qsub', 'job.sh'], cwd=str(subdir))
-        print(f"  phi={phi} → {qi}  (num_nodes={num_nodes})")
+        print(f"  split_{i} ({len(df_chunk)}点) → {qi}  (num_nodes={num_nodes})")
 
         prefer_queue = [q for q in ['gr1.q', 'gr2.q'] if q != qname][0]
         if not args.isTest:
