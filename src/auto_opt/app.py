@@ -105,33 +105,49 @@ with col_map:
     st.subheader(f"エネルギーマップ ({x_col} vs {y_col})")
     st.caption("点をクリックすると右側の3D構造が更新されます")
 
-    if pivot.shape[0] < 2 or pivot.shape[1] < 2:
-        fig = px.scatter(
-            df_fixed, x=x_col, y=y_col, color='E',
-            color_continuous_scale='RdBu_r',
-            labels={'color': 'E (kcal/mol)'},
-            hover_data=['E', 'a', 'b', 'z'],
-        )
-    else:
+    # ベース: ヒートマップ or 空の図
+    if pivot.shape[0] >= 2 and pivot.shape[1] >= 2:
         fig = px.imshow(
             pivot,
             color_continuous_scale='RdBu_r',
             labels={'color': 'E (kcal/mol)'},
             aspect='auto',
         )
+    else:
+        fig = go.Figure()
 
-    # 現在選択中の点をマーカーで重ねて表示
+    # クリック可能な散布図マーカーをデータ点に重ねる
+    # （heatmap セル単体はクリックイベントを取りにくいため）
+    hover_cols = [c for c in ['E', 'a', 'b', 'z'] if c in df_fixed.columns]
+    hover_text = df_fixed.apply(
+        lambda r: '<br>'.join(f"{c}={r[c]:.3f}" for c in hover_cols), axis=1
+    )
+    fig.add_trace(go.Scatter(
+        x=df_fixed[x_col], y=df_fixed[y_col],
+        mode='markers',
+        marker=dict(size=14, color='rgba(0,0,0,0)',
+                    line=dict(width=1, color='rgba(100,100,100,0.4)')),
+        text=hover_text,
+        hovertemplate=f"{x_col}=%{{x}}<br>{y_col}=%{{y}}<br>%{{text}}<extra></extra>",
+        showlegend=False,
+    ))
+
+    # 現在選択中の点をハイライト
     sel_x = st.session_state.sel.get(x_col)
     sel_y = st.session_state.sel.get(y_col)
     if sel_x is not None and sel_y is not None:
         fig.add_trace(go.Scatter(
             x=[sel_x], y=[sel_y],
             mode='markers',
-            marker=dict(symbol='circle-open', size=18, color='white', line=dict(width=3)),
+            marker=dict(symbol='circle-open', size=20, color='white',
+                        line=dict(width=3, color='white')),
             showlegend=False, hoverinfo='skip',
         ))
 
-    fig.update_layout(margin=dict(l=20, r=20, t=30, b=20))
+    fig.update_layout(
+        margin=dict(l=20, r=20, t=30, b=20),
+        clickmode='event+select',
+    )
 
     event = st.plotly_chart(
         fig, use_container_width=True,
