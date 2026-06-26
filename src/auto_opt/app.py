@@ -163,9 +163,16 @@ tab_setup, tab_vdw, tab_layer, tab_stack = st.tabs(
 #  Tab 0: セットアップ
 # ══════════════════════════════════════════════════════════
 with tab_setup:
+    # ─── Step 1: モノマー ────────────────────────────────
     st.subheader("Step 1: モノマー")
-    xyz_setup = st.file_uploader(
-        "monomer.xyz（前処理前の粗い構造）", type=["xyz"], key="setup_xyz"
+    st.caption(
+        "左サイドバーの「モノマー名」が全ファイルのキーになります（例: BTBT）。"
+        " ここではモノマーの性質と対称性を設定します。"
+    )
+    local_xyz = st.text_input(
+        "ローカルの xyz ファイルパス（前処理前の粗い構造）",
+        placeholder="/Users/you/Documents/my_molecule.xyz",
+        key="setup_local_xyz",
     )
 
     c1, c2, c3 = st.columns(3)
@@ -173,21 +180,22 @@ with tab_setup:
     setup_charge = c2.number_input("電荷", value=0, step=1, key="setup_charge")
     setup_mult   = c3.number_input("多重度", value=1, min_value=1, step=1, key="setup_mult")
 
+    # ─── Step 2: HPC 設定 ────────────────────────────────
     st.subheader("Step 2: HPC 設定")
+    st.caption(
+        "スパコン上での作業ディレクトリを決めてください。"
+        " このディレクトリ以下に全ての計算ファイルが置かれます。"
+    )
     c4, c5 = st.columns(2)
     hpc_host    = c4.text_input("HPC ホスト", placeholder="user@cmdell81", key="setup_hpc_host")
     hpc_workdir = c5.text_input(
-        "HPC 作業ディレクトリ",
+        "HPC 作業ディレクトリ（絶対パス）",
         placeholder=f"/home/user/projects/{monomer_name}",
         key="setup_hpc_workdir",
     )
-    setup_auto_dir = st.text_input(
-        "実行ディレクトリ (auto_dir)",
-        value=f"runs/{monomer_name}_{setup_sym}",
-        key="setup_auto_dir",
-    )
 
-    st.subheader("Step 3: Amber Tools パス（スパコン上）")
+    # ─── Step 3: Amber Tools パス ────────────────────────
+    st.subheader("Step 3: Amber Tools 設定（スパコン上）")
     amber_bin = st.text_input(
         "Amber bin ディレクトリ", value="~/anaconda3/envs/amber/bin", key="setup_amber_bin"
     )
@@ -195,33 +203,34 @@ with tab_setup:
     c6, c7 = st.columns(2)
     with c6:
         st.caption("キュー 1")
-        q1_name  = st.text_input("名前", value="gr1.q",   key="setup_q1_name")
-        q1_nproc = st.number_input("nproc", value=40,     key="setup_q1_nproc")
-        q1_pe    = st.text_input("pe",  value="OpenMP",   key="setup_q1_pe")
+        q1_name  = st.text_input("名前", value="gr1.q",  key="setup_q1_name")
+        q1_nproc = st.number_input("nproc", value=40,    key="setup_q1_nproc")
+        q1_pe    = st.text_input("pe",  value="OpenMP",  key="setup_q1_pe")
     with c7:
         st.caption("キュー 2")
-        q2_name  = st.text_input("名前", value="gr2.q",   key="setup_q2_name")
-        q2_nproc = st.number_input("nproc", value=52,     key="setup_q2_nproc")
-        q2_pe    = st.text_input("pe",  value="OpenMP",   key="setup_q2_pe")
+        q2_name  = st.text_input("名前", value="gr2.q",  key="setup_q2_name")
+        q2_nproc = st.number_input("nproc", value=52,    key="setup_q2_nproc")
+        q2_pe    = st.text_input("pe",  value="OpenMP",  key="setup_q2_pe")
 
     ca, cb, cc = st.columns(3)
     max_jobs      = ca.number_input("max_concurrent_jobs", value=6,  min_value=1, key="setup_max_jobs")
     poll_interval = cb.number_input("poll_interval (秒)",  value=30, min_value=5, key="setup_poll")
     nproc_reserve = cc.number_input("nproc_reserve",       value=2,  min_value=0, key="setup_nproc_res")
 
+    # ─── Step 4: 粗VdWスキャンパラメータ ────────────────
     st.subheader("Step 4: 粗VdWスキャンパラメータ")
 
     _DEFAULT_VDW_SETUP = {
         "glide": {
-            "alpha": {"min": 0.0,  "max": 90.0, "step": 10.0},
-            "phi":   {"min": -10.0,"max": 10.0, "step": 4.0},
-            "z":     {"min": -2.0, "max": 2.0,  "step": 0.5},
+            "alpha": {"min": 0.0,   "max": 90.0, "step": 10.0},
+            "phi":   {"min": -10.0, "max": 10.0, "step": 4.0},
+            "z":     {"min": -2.0,  "max": 2.0,  "step": 0.5},
         },
         "screw": {
-            "alpha": {"min": 0.0,  "max": 90.0, "step": 10.0},
-            "phi":   {"min": -10.0,"max": 10.0, "step": 4.0},
-            "z":     {"min": -2.0, "max": 2.0,  "step": 0.5},
-            "beta":  {"min": -20.0,"max": 20.0, "step": 5.0},
+            "alpha": {"min": 0.0,   "max": 90.0, "step": 10.0},
+            "phi":   {"min": -10.0, "max": 10.0, "step": 4.0},
+            "z":     {"min": -2.0,  "max": 2.0,  "step": 0.5},
+            "beta":  {"min": -20.0, "max": 20.0, "step": 5.0},
         },
     }
     _defs = _DEFAULT_VDW_SETUP[setup_sym]
@@ -258,18 +267,32 @@ with tab_setup:
         "並列ノード数", min_value=1, max_value=200, value=6, key="setup_n_nodes"
     )
 
+    # ─── 派生値 ──────────────────────────────────────────
+    _hpc_host_out    = hpc_host.strip()    or "user@hpc"
+    _hpc_workdir_out = hpc_workdir.strip() or f"/path/to/{monomer_name}"
+    _auto_dir_out    = f"{_hpc_workdir_out}/runs/{monomer_name}_{setup_sym}"
+    _mono_xyz_hpc    = f"{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz"
+    _local_xyz_out   = local_xyz.strip()   or f"/path/to/{monomer_name}_raw.xyz"
+
     # ─── 生成物 ──────────────────────────────────────────
     st.divider()
     st.subheader("生成物")
 
-    # モノマー XYZ ダウンロード
-    if xyz_setup is not None:
-        st.download_button(
-            label=f"{monomer_name}_raw.xyz をダウンロード",
-            data=xyz_setup.read(),
-            file_name=f"{monomer_name}_raw.xyz",
-            mime="text/plain",
-            key="dl_monomer_xyz",
+    # HPC ディレクトリ構成
+    with st.expander("HPC 上のディレクトリ構成", expanded=True):
+        st.code(
+            f"{_hpc_workdir_out}/\n"
+            f"├── run_config.yaml                    ← scp で転送\n"
+            f"├── data/\n"
+            f"│   ├── monomer/\n"
+            f"│   │   ├── {monomer_name}_raw.xyz     ← scp で転送（ファイル名は変換される）\n"
+            f"│   │   ├── {monomer_name}.xyz          ← Gaussian opt 後に自動生成\n"
+            f"│   │   ├── {monomer_name}.csv          ← 自動生成\n"
+            f"│   │   └── {monomer_name}.mol2         ← 自動生成\n"
+            f"│   └── amber_ref/\n"
+            f"│       └── {monomer_name}_gaff2.out   ← 自動生成\n"
+            f"└── runs/{monomer_name}_{setup_sym}/   ← VdW・Amber 計算結果\n",
+            language="text",
         )
 
     # ~/.auto_opt.yaml テンプレート
@@ -303,10 +326,6 @@ with tab_setup:
         )
 
     # run_config.yaml
-    _hpc_workdir_out  = hpc_workdir.strip() or f"/path/to/{monomer_name}"
-    _auto_dir_out     = setup_auto_dir.strip() or f"runs/{monomer_name}_{setup_sym}"
-    _monomer_xyz_path = f"{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz"
-
     _params_yaml = ""
     for _axis in ["z", "alpha", "phi"] + (["beta"] if setup_sym == "screw" else []):
         _cfg = setup_param_cfg[_axis]
@@ -328,7 +347,7 @@ with tab_setup:
         f"monomer: {monomer_name}\n"
         f"symmetry: {setup_sym}\n"
         f"auto_dir: {_auto_dir_out}\n"
-        f"monomer_xyz: {_monomer_xyz_path}\n\n"
+        f"monomer_xyz: {_mono_xyz_hpc}\n\n"
         f"charge: {int(setup_charge)}\n"
         f"mult: {int(setup_mult)}\n\n"
         f"parameters:\n{_params_yaml}\n"
@@ -348,15 +367,18 @@ with tab_setup:
 
     # コマンド
     st.subheader("コマンド")
-    _hpc_host_out = hpc_host.strip() or "user@hpc"
-    st.caption("ローカルで実行 — スパコンへファイル転送")
+    st.caption("1. ローカルで実行 — スパコンへファイル転送")
     st.code(
-        f"scp {monomer_name}_raw.xyz {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/\n"
-        f"scp run_config.yaml       {_hpc_host_out}:{_hpc_workdir_out}/\n"
-        f"scp auto_opt.yaml         {_hpc_host_out}:~/.auto_opt.yaml  # 初回のみ",
+        f"# モノマー xyz を転送（ファイル名は {monomer_name}_raw.xyz に変換されます）\n"
+        f"scp {_local_xyz_out} \\\n"
+        f"    {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz\n\n"
+        f"# 設定ファイルを転送\n"
+        f"scp run_config.yaml {_hpc_host_out}:{_hpc_workdir_out}/\n\n"
+        f"# 環境設定（初回のみ）\n"
+        f"scp auto_opt.yaml   {_hpc_host_out}:~/.auto_opt.yaml",
         language="bash",
     )
-    st.caption("スパコン上で実行")
+    st.caption("2. スパコン上で実行")
     st.code(
         f"cd {_hpc_workdir_out}\n"
         f"python -m auto_opt.run --config run_config.yaml"
