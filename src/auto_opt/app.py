@@ -79,21 +79,20 @@ with st.sidebar:
                 fix_vals[col] = st.select_slider(col, options=unique, value=unique[0])
 
 # ──────────────────────────────────────────────
-#  session_state: クリックで選んだ点を保持
+#  session_state
 # ──────────────────────────────────────────────
 
 if 'sel' not in st.session_state:
     st.session_state.sel = {}
 if 'stacking_list' not in st.session_state:
     st.session_state.stacking_list = []
-if 'heatmap_selection' not in st.session_state:
-    st.session_state.heatmap_selection = []   # 複数選択点 [{x_col: v, y_col: v}, ...]
+if 'editor_key' not in st.session_state:
+    st.session_state.editor_key = 0  # data_editor リセット用
 
 # 軸や固定パラメータが変わったらクリック選択をリセット
 _state_key = (x_col, y_col, tuple(sorted(fix_vals.items())))
 if st.session_state.get('_prev_key') != _state_key:
     st.session_state.sel = {}
-    st.session_state.heatmap_selection = []
     st.session_state['_prev_key'] = _state_key
 
 # ──────────────────────────────────────────────
@@ -113,14 +112,9 @@ pivot = df_fixed.pivot_table(values='E', index=y_col, columns=x_col, aggfunc='mi
 col_map, col_3d = st.columns([1, 1])
 
 with col_map:
-    n_sel = len(st.session_state.heatmap_selection)
     st.subheader(f"エネルギーマップ ({x_col} vs {y_col})")
-    st.caption(
-        "クリック: 3D 表示を更新 & スタッキング候補に追加/解除 | "
-        f"現在 **{n_sel}** 点選択中（黄色丸）"
-    )
+    st.caption("点をクリックすると右側の3D構造が更新されます")
 
-    # ベース: ヒートマップ or 空の図
     if pivot.shape[0] >= 2 and pivot.shape[1] >= 2:
         fig = px.imshow(
             pivot,
@@ -131,8 +125,6 @@ with col_map:
     else:
         fig = go.Figure()
 
-    # クリック可能な散布図マーカーをデータ点に重ねる
-    # （heatmap セル単体はクリックイベントを取りにくいため）
     hover_cols = [c for c in ['E', 'a', 'b', 'z'] if c in df_fixed.columns]
     hover_text = df_fixed.apply(
         lambda r: '<br>'.join(f"{c}={r[c]:.3f}" for c in hover_cols), axis=1
@@ -147,7 +139,7 @@ with col_map:
         showlegend=False,
     ))
 
-    # 単一クリック: 白丸でハイライト
+    # 現在選択中の点をハイライト
     sel_x = st.session_state.sel.get(x_col)
     sel_y = st.session_state.sel.get(y_col)
     if sel_x is not None and sel_y is not None:
@@ -159,16 +151,17 @@ with col_map:
             showlegend=False, hoverinfo='skip',
         ))
 
-    # 複数選択: 黄色丸でハイライト
-    if st.session_state.heatmap_selection:
-        fig.add_trace(go.Scatter(
-            x=[p[x_col] for p in st.session_state.heatmap_selection],
-            y=[p[y_col] for p in st.session_state.heatmap_selection],
-            mode='markers',
-            marker=dict(symbol='circle-open', size=18, color='yellow',
-                        line=dict(width=2, color='yellow')),
-            showlegend=False, hoverinfo='skip',
-        ))
+    # stacking_list に登録済みの点をオレンジ丸でハイライト
+    if st.session_state.stacking_list:
+        df_stk = pd.DataFrame(st.session_state.stacking_list)
+        if x_col in df_stk.columns and y_col in df_stk.columns:
+            fig.add_trace(go.Scatter(
+                x=df_stk[x_col], y=df_stk[y_col],
+                mode='markers',
+                marker=dict(symbol='circle-open', size=16, color='orange',
+                            line=dict(width=2, color='orange')),
+                showlegend=False, hoverinfo='skip',
+            ))
 
     fig.update_layout(
         margin=dict(l=20, r=20, t=30, b=20),
@@ -180,32 +173,12 @@ with col_map:
         on_select='rerun', key='heatmap_chart',
     )
 
-    # 選択イベントを処理（クリックでトグル）
     if event and event.selection and event.selection.points:
         pt = event.selection.points[0]
-        cx = pt.get('x')
-        cy = pt.get('y')
-        if cx is not None:
-            st.session_state.sel[x_col] = float(cx)
-        if cy is not None:
-            st.session_state.sel[y_col] = float(cy)
-
-        if cx is not None and cy is not None:
-            cx, cy = float(cx), float(cy)
-            already = any(
-                np.isclose(p[x_col], cx, atol=1e-5) and np.isclose(p[y_col], cy, atol=1e-5)
-                for p in st.session_state.heatmap_selection
-            )
-            if already:
-                # 2度目のクリック → 選択解除
-                st.session_state.heatmap_selection = [
-                    p for p in st.session_state.heatmap_selection
-                    if not (np.isclose(p[x_col], cx, atol=1e-5)
-                            and np.isclose(p[y_col], cy, atol=1e-5))
-                ]
-            else:
-                # 初回クリック → 追加
-                st.session_state.heatmap_selection.append({x_col: cx, y_col: cy})
+        if pt.get('x') is not None:
+            st.session_state.sel[x_col] = float(pt['x'])
+        if pt.get('y') is not None:
+            st.session_state.sel[y_col] = float(pt['y'])
         st.rerun()
 
 # ──────────────────────────────────────────────
@@ -219,13 +192,10 @@ sel_cols_ui = st.columns(len(axis_candidates))
 sel_vals: dict[str, float] = {}
 for i, col in enumerate(axis_candidates):
     unique = sorted(df[col].dropna().unique())
-    # クリック値 → 固定パラメータ → 先頭 の優先順位でデフォルト
     default = st.session_state.sel.get(col, fix_vals.get(col, unique[0]))
-    # 最近傍の値に丸める（浮動小数点のずれ対策）
     default_idx = min(range(len(unique)), key=lambda j: abs(unique[j] - default))
     sel_vals[col] = sel_cols_ui[i].selectbox(col, unique, index=default_idx, key=f"sel_{col}")
 
-# 選択条件で絞り込み
 mask = pd.Series([True] * len(df), index=df.index)
 for col, val in sel_vals.items():
     mask &= np.isclose(df[col], val, atol=1e-5)
@@ -275,45 +245,48 @@ with col_3d:
         )
 
 # ──────────────────────────────────────────────
-#  スタッキング候補リスト
+#  スタッキング候補: テーブルでチェック選択
 # ──────────────────────────────────────────────
 
 st.divider()
 st.subheader("スタッキング候補リスト")
-st.caption(f"スキャン軸: **{scan_axis}**")
+st.caption(f"スキャン軸: **{scan_axis}** | 下のテーブルで行をチェックして追加してください")
 
-n_sel = len(st.session_state.heatmap_selection)
-c_add1, c_add_multi, c_clear = st.columns([1, 1, 1])
+# 表示列: 軸パラメータ + E + 格子定数
+show_cols = [c for c in axis_candidates + ['E', 'a', 'b'] if c in df_fixed.columns]
+df_table = (
+    df_fixed[show_cols]
+    .sort_values('E')
+    .drop_duplicates(subset=[x_col, y_col])
+    .sort_values([x_col, y_col])
+    .reset_index(drop=True)
+)
+df_table.insert(0, '追加', False)
 
-with c_add1:
-    if st.button("現在の構造を追加 (1点)"):
-        if not rows.empty:
-            row_data = (
-                rows.loc[rows['E'].idxmin()] if len(rows) > 1 else rows.iloc[0]
-            ).to_dict()
-            scan_val = row_data.get(scan_axis)
-            existing = [r.get(scan_axis) for r in st.session_state.stacking_list]
-            if scan_val not in existing:
-                st.session_state.stacking_list.append(row_data)
-                st.rerun()
-            else:
-                st.warning(f"{scan_axis}={scan_val} は既にリストにあります")
+edited = st.data_editor(
+    df_table,
+    column_config={'追加': st.column_config.CheckboxColumn('追加', default=False)},
+    disabled=[c for c in df_table.columns if c != '追加'],
+    use_container_width=True,
+    hide_index=True,
+    key=f'stacking_editor_{st.session_state.editor_key}',
+)
 
-with c_add_multi:
-    btn_label = f"選択中の {n_sel} 点を追加" if n_sel > 0 else "選択中の点を追加 (0点)"
-    if st.button(btn_label, disabled=(n_sel == 0)):
+checked = edited[edited['追加']]
+c_add, c_clear = st.columns([1, 1])
+
+with c_add:
+    btn_label = f"チェックした {len(checked)} 点を追加" if len(checked) > 0 else "追加 (0点チェック中)"
+    if st.button(btn_label, disabled=(len(checked) == 0)):
+        existing = {r.get(scan_axis) for r in st.session_state.stacking_list}
         added = 0
-        existing = [r.get(scan_axis) for r in st.session_state.stacking_list]
-        for sel_pt in st.session_state.heatmap_selection:
-            px_val = sel_pt.get(x_col)
-            py_val = sel_pt.get(y_col)
-            if px_val is None or py_val is None:
-                continue
-            mask = (
-                np.isclose(df_fixed[x_col], px_val, atol=1e-5) &
-                np.isclose(df_fixed[y_col], py_val, atol=1e-5)
-            )
-            matches = df_fixed[mask]
+        for _, trow in checked.iterrows():
+            # df_fixed から完全な行データを取得
+            mask_t = pd.Series([True] * len(df_fixed), index=df_fixed.index)
+            for c in show_cols:
+                if c in df_fixed.columns and c in trow.index:
+                    mask_t &= np.isclose(df_fixed[c], trow[c], atol=1e-5)
+            matches = df_fixed[mask_t]
             if matches.empty:
                 continue
             row_data = (
@@ -322,18 +295,18 @@ with c_add_multi:
             scan_val = row_data.get(scan_axis)
             if scan_val not in existing:
                 st.session_state.stacking_list.append(row_data)
-                existing.append(scan_val)
+                existing.add(scan_val)
                 added += 1
         if added > 0:
-            st.session_state.heatmap_selection = []
+            st.session_state.editor_key += 1  # チェックボックスをリセット
             st.rerun()
         else:
-            st.warning("追加できる新しい点がありませんでした")
+            st.warning("追加できる新しい点がありませんでした（重複または一致なし）")
 
 with c_clear:
     if st.button("リストをクリア"):
         st.session_state.stacking_list = []
-        st.session_state.heatmap_selection = []
+        st.session_state.editor_key += 1
         st.rerun()
 
 if st.session_state.stacking_list:
