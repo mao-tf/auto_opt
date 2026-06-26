@@ -1,20 +1,24 @@
 # auto_opt システム仕様書
 
+最終更新: 2026-06-26
+
+---
+
 ## 1. システム概要
 
-有機半導体結晶の**層内分子配置**を自動最適化するツール。
-ユーザーが用意したモノマーの XYZ ファイルを入力として、Amber 力場による格子エネルギー最適化と Gaussian DFT 計算を自動実行する。
+有機半導体結晶の**層内・層間分子配置**を自動最適化するツール。
+ユーザーが用意したモノマーの XYZ ファイルを入力として、以下を自動実行する：
+
+1. **モノマー前処理**（Gaussian DFT 最適化 → RESP 電荷 → GAFF2 パラメータ）
+2. **層内最適化**（VdW スウィープ → Amber 力場最適化 → 局所最小抽出）
+3. **層間最適化**（スタッキング VdW スウィープ → Amber 力場最適化）
 
 ### 対象とする結晶対称性
 
-ユーザーは以下の2種類から対称性を選択する：
-
 | 対称性 | 説明 | コード識別子 |
 |--------|------|------------|
-| 映進対称（glide） | 鏡映＋平行移動で関連する2分子配置 | `glide` |
-| 螺旋軸対称（screw） | 回転＋平行移動で関連する2分子配置 | `screw` |
-
-phi（分子面内回転角）はどちらの対称性でも共通して扱う。
+| 映進対称（glide） | 鏡映＋平行移動。b方向の隣分子は z が 2z ずれる | `glide` |
+| 螺旋軸対称（screw） | 回転＋平行移動。b方向の隣分子は z オフセットなし | `screw` |
 
 ---
 
@@ -22,64 +26,69 @@ phi（分子面内回転角）はどちらの対称性でも共通して扱う�
 
 ```
 [ユーザー入力]
-  monomer.xyz  +  対称性の選択（glide / screw）
+  monomer_raw.xyz  +  対称性（glide / screw）
       │
       ▼
-┌─────────────────────────────────┐
-│  Step 0: モノマー前処理          │
-│  monomer/prep_monomer.py        │
-└──────────────┬──────────────────┘
-               │ monomer.csv, monomer.mol2,
-               │ monomer_gaff2.frcmod, amber_ref/*.out
+┌──────────────────────────────────────┐
+│  Step 0: モノマー前処理               │
+│  monomer/prep_monomer.py --mode all  │
+│  出力: data/monomer/{MON}.mol2       │
+│        data/amber_ref/{MON}_gaff2.out│
+└──────────────┬───────────────────────┘
+               │
                ▼
 ┌──────────────────────────────────────────────────────┐
-│  Step 1: VdW スウィープ                               │
+│  Step 1: 層内 VdW スウィープ                          │
 │                                                      │
 │  [glide]  vdw/sweep_phi.py       → vdW_r_contact.csv│
+│             ↓ extract_init_phi.py                    │
 │  [screw]  vdw/sweep_screw_phi.py → step1_init_      │
 │                                    params.csv (直接) │
 └──────────────┬───────────────────────────────────────┘
-               │
-               ▼ [glide のみ]
-┌─────────────────────────────────┐
-│  Step 2: 初期点抽出              │
-│  vdw/extract_init_phi.py        │
-│  → step1_init_params.csv        │
-└──────────────┬──────────────────┘
                │ step1_init_params.csv
                ▼
 ┌──────────────────────────────────────────────────────┐
-│  Step 3: Amber 層内最適化                             │
+│  Step 2: 層内 Amber 最適化                            │
 │                                                      │
-│  [glide]  amber/job_phi.py                           │
-│             └ driver_gene_phi.py                     │
-│                └ make_io_gene_phi.py                 │
+│  [glide]  amber/job_phi.py → driver_gene_phi.py      │
+│  [screw]  amber/job_screw_phi.py → driver_screw_phi  │
 │                                                      │
-│  [screw]  amber/job_screw_phi.py                     │
-│             └ driver_screw_phi.py                    │
-│                └ make_io_gene_screw_phi.py            │
-│                                                      │
-│           → step1.csv                                │
-│           → ★完了後に自動で Step 4 を呼び出す         │
+│  → split_*/step1.csv → filtered_step1.csv            │
 └──────────────┬───────────────────────────────────────┘
-               │ step1.csv
-               ▼
-┌─────────────────────────────────┐
-│  Step 4: 局所最小抽出 ★新設     │
-│  extract_minima.py              │
-│  （driver 完了後に自動実行）     │
-│  → filtered_step1.csv           │
-└──────────────┬──────────────────┘
                │ filtered_step1.csv
+               ↓ [ローカル Mac へ scp]
+┌──────────────────────────────────────────────────────┐
+│  可視化 (app.py / Streamlit)                          │
+│  ① ヒートマップで層内安定構造を確認                   │
+│  ② 「候補構造を選ぶ」モードで複数点を選択             │
+│  ③ stacking_candidates.csv をダウンロード            │
+└──────────────┬───────────────────────────────────────┘
+               │ stacking_candidates.csv
+               ↓ [スパコンへ scp]
+┌──────────────────────────────────────────────────────┐
+│  Step 3: スタッキング VdW スウィープ                  │
+│  stacking/sweep_stacking_vdw.py                      │
+│  → step1_init_params.csv（cy × cz の初期値）         │
+└──────────────┬───────────────────────────────────────┘
+               │
                ▼
 ┌──────────────────────────────────────────────────────┐
-│  Step 5: Gaussian DFT 計算                           │
-│                                                      │
-│  [glide]  gaussian/pipeline_phi.py    ← 投入のみ     │
-│  [screw]  gaussian/pipeline_screw_phi.py ← 投入のみ  │
-│                                                      │
-│  ジョブ管理: gaussian/driver_dft_jobs.py             │
-│  → *.inp, *.log                                      │
+│  Step 4: スタッキング Amber 最適化                    │
+│  stacking/job_stacking.py → driver_stacking.py       │
+│  → split_*/step1.csv                                 │
+└──────────────┬───────────────────────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────────────────────┐
+│  Step 5: 結果収集                                     │
+│  stacking/merge_results.py                           │
+│  → stacking_results.csv                              │
+└──────────────┬───────────────────────────────────────┘
+               ↓ [ローカル Mac へ scp]
+┌──────────────────────────────────────────────────────┐
+│  可視化 (app.py)                                      │
+│  スタッキングエネルギープロット                       │
+│  (E_layer / E_stack / E_total vs scan_axis)          │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -91,231 +100,186 @@ phi（分子面内回転角）はどちらの対称性でも共通して扱う�
 
 | 項目 | 内容 |
 |------|------|
-| スクリプト | `monomer/prep_monomer.py` |
-| 入力 | `monomer.xyz` |
-| 出力 | `monomer.csv`（原子座標＋VdW半径）, `monomer.mol2`, `monomer_gaff2.frcmod`, `amber_ref/*.out`（Amber基準エネルギー） |
-| 外部依存 | Gaussian（DFT最適化・RESP電荷）, antechamber（GAFF2パラメータ）, sander（Amber E） |
+| スクリプト | `monomer/prep_monomer.py --mode all` |
+| 入力 | `{MON}_raw.xyz`（最適化前の粗い構造可） |
+| 出力 | `data/monomer/{MON}.mol2`, `data/amber_ref/{MON}_gaff2.out` |
+| 処理 | Gaussian B3LYP/6-31G(d) SCF=Tight 最適化 → PCA 主軸整列 → HF/6-31G(d) ESP → RESP → GAFF2 |
+| 外部依存 | Gaussian, antechamber, parmchk2, tleap, sander（パスは `~/.auto_opt.yaml` の `amber_tools` で指定） |
 
 ---
 
-### Step 1: VdW スウィープ
+### Step 1: 層内 VdW スウィープ
 
 #### 映進（glide）
+
 | 項目 | 内容 |
 |------|------|
-| スクリプト | `vdw/sweep_phi.py` |
-| 入力 | `monomer.xyz`, パラメータ範囲（alpha, beta, phi, z の最小/最大/刻み） |
-| 出力 | `vdW_r_contact_<monomer>.csv`（列: alpha, phi, beta, z, R_clps, TorF） |
+| スクリプト | `vdw/sweep_phi.py` → `vdw/extract_init_phi.py` |
+| パラメータ | alpha, phi, z の範囲と刻み |
+| 出力 | `step1_init_params.csv` |
 
 #### 螺旋軸（screw）
+
 | 項目 | 内容 |
 |------|------|
 | スクリプト | `vdw/sweep_screw_phi.py` |
-| 入力 | `monomer.xyz`, パラメータ範囲（alpha, beta, phi, z の最小/最大/刻み） |
-| 出力 | `step1_init_params.csv`（列: alpha, beta, phi, a, b, bt1, bt2, z, status, structure_type） |
-| 備考 | Step 2 は不要（初期点まで一括生成） |
+| パラメータ | alpha, beta, phi, z の範囲と刻み |
+| 出力 | `step1_init_params.csv`（a-stack / b-stack 分類付き） |
 
 ---
 
-### Step 2: 初期点抽出（映進のみ）
+### Step 2: 層内 Amber 最適化
+
+| 項目 | glide | screw |
+|------|-------|-------|
+| ジョブ投入 | `amber/job_phi.py` | `amber/job_screw_phi.py` |
+| ドライバー | `amber/driver_gene_phi.py` | `amber/driver_screw_phi.py` |
+| 幾何生成 | `amber/make_io_gene_phi.py` | `amber/make_io_gene_screw_phi.py` |
+| ダイマー種類 | 3種 (a/b/t-dimer) | 4種 (a/b/t1/t3-dimer) |
+| エネルギー式 | `E = 2E1 + 2E2 + 4E3` | `E = 2E1 + 2E2 + 2E3 + 2E4` |
+| 出力 | `filtered_step1.csv` | `filtered_step1.csv` |
+
+ジョブ投入は `cluster.py` 経由で SGE キューを管理。キュー定義は `~/.auto_opt.yaml` で指定。
+
+---
+
+### 可視化（app.py / Streamlit）
+
+```
+streamlit run src/auto_opt/app.py
+```
+
+| 機能 | 説明 |
+|------|------|
+| ヒートマップ | `filtered_step1.csv` から任意の2軸でエネルギーマップを表示 |
+| 3D 表示 | クリックした点の9分子クラスターを py3Dmol で表示 |
+| 候補構造を選ぶモード | ボタンで入る。クリックで複数点をトグル選択し、確定で追加 |
+| CSV ダウンロード | `stacking_candidates.csv` として出力 |
+| 結果プロット | `stacking_results.csv` を読み込み E_layer/E_stack/E_total を1Dプロット |
+
+---
+
+### Step 3: スタッキング VdW スウィープ
 
 | 項目 | 内容 |
 |------|------|
-| スクリプト | `vdw/extract_init_phi.py` |
-| 入力 | `vdW_r_contact_<monomer>.csv` |
-| 出力 | `step1_init_params.csv`（列: alpha, phi, a, b, z, status, structure_type） |
-| 備考 | phi=0 固定の場合も `extract_init_phi.py` をそのまま使用（phi=0 を含むケースをカバー済み） |
+| スクリプト | `stacking/sweep_stacking_vdw.py` |
+| 入力 | `stacking_candidates.csv`（app.py から出力）, `data/monomer/{MON}.csv` |
+| 処理 | cy を `b/2` の範囲でスキャンし、各点で VdW 接触 cz を計算 |
+| 出力 | `step1_init_params.csv`（cx, cy, cz, 固定パラメータ） |
+| 対称性 | `--symmetry [glide\|screw]` で切り替え |
+
+分子の Z>0.1 (上半分) / Z<-0.1 (下半分) に分割して VdW 接触を計算。
+- **glide**: 平行ペア `(0,±b,±2z)` ＋ T字ペア `(±a/2, ±b/2, ±z)`
+- **screw**: 平行ペア `(0,±b,0)` ＋ T字ペア `(±a/2, ±bt1/2, ±z)`
 
 ---
 
-### Step 3: Amber 層内最適化
-
-#### 映進（glide）
+### Step 4: スタッキング Amber 最適化
 
 | 項目 | 内容 |
 |------|------|
-| ジョブ投入 | `amber/job_phi.py` |
-| ドライバー | `amber/driver_gene_phi.py` |
-| 幾何生成 | `amber/make_io_gene_phi.py` |
-| 固定パラメータ | alpha, phi |
-| 最適化パラメータ | a（E1用）, b+z（E2用）|
-| ダイマー種類 | 3種: a-dimer (E1), b-dimer (E2), t-dimer (E3) |
-| エネルギー式 | `E = 2*E1 + 2*E2 + 4*E3` |
-| 出力列 | alpha, phi, a, b, z, E, E1, E2, E3, status |
+| ジョブ投入 | `stacking/job_stacking.py --symmetry [glide\|screw]` |
+| ドライバー | `stacking/driver_stacking.py` |
+| 幾何生成 | `stacking/make_io_stacking.py` (glide) / `stacking/make_io_stacking_screw.py` (screw) |
+| ダイマー種類 | glide: 14ペア, screw: 13ペア |
+| エネルギー式 | glide: `E = Σ14`, screw: `E = Σ[0:5] + Σ[5:13]/2` |
+| 処理 | VdW 初期 cz を±0.1 ずつ拡張して最小エネルギー cz を探索 |
+| 出力 | `split_*/step1.csv` |
 
-#### 螺旋軸（screw）
+Amber ツールのパスは `cluster.get_amber_tool()` で `~/.auto_opt.yaml` から解決。
+
+---
+
+### Step 5: 結果収集
 
 | 項目 | 内容 |
 |------|------|
-| ジョブ投入 | `amber/job_screw_phi.py` |
-| ドライバー | `amber/driver_screw_phi.py` |
-| 幾何生成 | `amber/make_io_gene_screw_phi.py` |
-| 固定パラメータ | alpha, beta, phi |
-| 最適化パラメータ | a, bt1, bt2（b = bt1+bt2） |
-| ダイマー種類 | 4種: a-dimer (E1), b-dimer (E2), t1-dimer (E3), t3-dimer (E4) |
-| エネルギー式 | `E = 2*E1 + 2*E2 + 2*E3 + 2*E4` |
-| 出力列 | alpha, beta, phi, a, b, bt1, bt2, z, E, E1, E2, E3, E4, status |
+| スクリプト | `stacking/merge_results.py` |
+| 入力 | `split_*/step1.csv` |
+| 出力 | `stacking_results.csv`（cy, cz, E 等） |
 
 ---
 
-### Step 4: 局所最小抽出（新設）★
-
-driver 完了後に自動実行される独立スクリプト。
-現在は `pipeline_phi.py` / `pipeline_screw_phi.py` の内部に `extract_from_step1()` として埋め込まれているものを独立させる。
-
-| 項目 | 内容 |
-|------|------|
-| スクリプト | `gaussian/extract_minima.py`（新規作成） |
-| 起動 | driver の最後に自動呼び出し |
-| 入力 | `step1.csv` |
-| 処理（glide） | (alpha, phi, z) ごとに (a, b) の2D局所最小を抽出 |
-| 処理（screw） | (alpha, beta, phi, z) ごとに (a, bt1, bt2) の3D局所最小を抽出 |
-| 出力 | `filtered_step1.csv`（局所最小行のみ） |
-
----
-
-### Step 5: Gaussian DFT 計算
-
-| 役割 | スクリプト |
-|------|-----------|
-| ジョブ作成＋投入（glide） | `gaussian/pipeline_phi.py`（投入のみに整理） |
-| ジョブ作成＋投入（screw） | `gaussian/pipeline_screw_phi.py`（投入のみに整理） |
-| 空きノード管理・自動投入 | `gaussian/driver_dft_jobs.py` |
-
----
-
-## 4. ファイル整理方針
-
-### 残す（正式版）
+## 4. ファイル構成（現行）
 
 ```
 src/auto_opt/
+├── cluster.py                  ← SGE ジョブ管理・設定読み込み
+├── run.py                      ← Step 0-3 オーケストレーター
+├── app.py                      ← Streamlit 可視化 UI
 ├── utils.py
 ├── monomer/
 │   └── prep_monomer.py
 ├── vdw/
-│   ├── sweep_phi.py              ← 映進: VdWスウィープ
-│   ├── sweep_screw_phi.py        ← 螺旋軸: VdWスウィープ＋初期点生成
-│   └── extract_init_phi.py       ← 映進: 初期点抽出（phi=0も対応）
+│   ├── sweep_phi.py
+│   ├── sweep_screw_phi.py
+│   └── extract_init_phi.py
 ├── amber/
-│   ├── make_io_gene_phi.py       ← 映進: ダイマー幾何
-│   ├── driver_gene_phi.py        ← 映進: 最適化ドライバー
-│   ├── job_phi.py                ← 映進: SGEジョブ投入
-│   ├── make_io_gene_screw_phi.py ← 螺旋軸: ダイマー幾何
-│   ├── driver_screw_phi.py       ← 螺旋軸: 最適化ドライバー
-│   └── job_screw_phi.py          ← 螺旋軸: SGEジョブ投入
+│   ├── make_io_gene_phi.py
+│   ├── driver_gene_phi.py
+│   ├── job_phi.py
+│   ├── make_io_gene_screw_phi.py
+│   ├── driver_screw_phi.py
+│   └── job_screw_phi.py
+├── stacking/
+│   ├── sweep_stacking_vdw.py
+│   ├── make_io_stacking.py       ← glide ダイマーペア生成
+│   ├── make_io_stacking_screw.py ← screw ダイマーペア生成
+│   ├── driver_stacking.py        ← glide/screw 統合ドライバー
+│   ├── job_stacking.py           ← glide/screw 統合ジョブ投入
+│   └── merge_results.py          ← 結果収集
+├── plot/
+│   └── make_cluster_xyz.py
 └── gaussian/
-    ├── extract_minima.py         ← ★新規作成: 局所最小抽出
-    ├── pipeline_phi.py           ← 映進: Gaussian投入（抽出部分を分離）
-    ├── pipeline_screw_phi.py     ← 螺旋軸: Gaussian投入（抽出部分を分離）
-    └── driver_dft_jobs.py        ← 空きノード管理・自動投入
-```
+    ├── pipeline_phi.py
+    └── pipeline_screw_phi.py
 
-### アーカイブ（`legacy/` フォルダへ移動）
-
-```
-vdw/
-  sweep.py                   ← phi なし旧版
-  extract_init.py            ← phi なし旧版（extract_init_phi.py でカバー済み）
-  sweep_phi_antiparallel.py  ← 実験的
-
-amber/
-  driver_gene.py             ← phi なし旧版
-  driver_gene_screw.py       ← phi なし旧版
-  driver_gene_asym.py        ← 非対称（除外）
-  driver_gene_phi_asym.py    ← 非対称（除外）
-  driver_gene_phi_asym_anti.py ← 非対称（除外）
-  driver_pfa.py              ← PFA専用（除外）
-  driver_crystal_energy.py   ← 別用途
-  calc_pentamer_interaction.py ← 別用途
-  job.py / job_screw.py
-  job_asym.py / job_phi_asym.py / job_phi_asym_anti.py
-  make_io_gene.py / make_io_gene_screw.py
-  make_io_gene_asym.py / make_io_gene_phi_asym.py
-  make_io_gene_phi_asym_anti.py
-  make_io_pfa.py
-
-gaussian/
-  pipeline.py / pipeline_v2.py / pipeline_v3.py ← 旧版
-  pipeline_v3_asym.py / pipeline_screw.py        ← 旧版
-  collect.py / collect_asym.py / collect_phi_asym.py / collect_phi.py
-  select_minima.py / select_minima_phi.py
-  make_qe_xyz.py / collect_qe_energy.py / collect_zscan_dft.py / collect_cif.py
-  make_inp_from_xyz.py
-
-flow/
-  run.py                     ← 未使用
+legacy/                           ← 旧版（参照のみ）
+data/
+  monomer/                        ← {MON}.csv, {MON}.mol2
+  amber_ref/                      ← {MON}_gaff2.out
+examples/
+  auto_opt_env.yaml               ← ~/.auto_opt.yaml のテンプレート
+  run_config.yaml                 ← run.py 設定ファイルのテンプレート
 ```
 
 ---
 
-## 5. 今後の作業リスト
-
-| 状態 | 優先度 | 作業 | 内容 |
-|------|--------|------|------|
-| ✅ 完了 | 高 | `extract_minima.py` 新規作成 | `pipeline_phi.py` / `pipeline_screw_phi.py` の `extract_from_step1()` を独立化 |
-| ✅ 完了 | 高 | driver への自動呼び出し追加 | `driver_gene_phi.py`, `driver_screw_phi.py` の最後で `extract_minima.py` を実行 |
-| ✅ 完了 | 高 | `pipeline_phi.py` の整理 | 抽出部分を除き、Gaussian 投入のみに |
-| ✅ 完了 | 高 | `pipeline_screw_phi.py` の整理 | 同上 |
-| ✅ 完了 | 中 | legacy フォルダ作成・移動 | 旧バージョンファイルを整理 |
-| ✅ 完了 | 中 | `os.environ['HOME']` の除去 | 全8ファイルから削除。`MONOMER_DIR` を `__file__` 相対パスに変更 |
-| ✅ 完了 | 中 | `sweep_phi.py` 変数名整理 | 接触方向角 `beta` → `theta_c` に改名（`extract_init_phi.py` も追従） |
-| ✅ 完了 | 中 | `vdw_R` のバグ修正 | `sweep_phi.py` を mask 方式に統一（接触不可ペアの誤計上を修正） |
-| ✅ 完了 | 中 | screw VdW sweep に構造分類を追加 | `sweep_screw_phi.py` に a-stack / b-stack 計算と `--select` オプションを追加 |
-| ✅ 完了 | 中 | `utils.py` の整理 | 未使用関数削除・型ヒント追加・R2atom float比較修正 |
-| ✅ 完了 | 低 | README.md 作成 | インストール・使い方（英語・日本語） |
-| ✅ 完了 | 低 | pyproject.toml 整備 | 依存パッケージ明記（numpy/pandas/scipy/pyyaml） |
-| ✅ 完了 | 中 | 可視化ツール追加 | `plot/energy_map.py`（2Dヒートマップ）, `plot/export_xyz.py`（構造XYZ出力） |
-| ✅ 完了 | 中 | オーケストレーター | `run.py` + `run_config.yaml` で Step 1→4 を1コマンド実行。`--stop-after`/`--start-from` で段階実行も可 |
-| 🔲 未着手 | 中 | 環境設定ファイルの導入 | `~/.auto_opt.yaml` でパスを外出し（詳細は §6 参照） |
-| 🔲 未着手 | 低 | GUI | パラメータ設定・エネルギーマップのインタラクティブ操作（将来計画） |
-
----
-
-## 6. 環境移植性の方針
-
-他の研究機関でも使えるようにするため、環境依存箇所を段階的に取り除く。
-
-### 依存の種類と対応方針
-
-| 種類 | 現状の問題 | 対応方針 |
-|------|-----------|---------|
-| ハードコードパス | `os.environ['HOME'] = '/home/miyoshi'` など | 即削除（`Path.home()` で代替） |
-| ソフトウェアパス | `source ~/anaconda3/...`, `conda activate amber`, `export g16root=/home/g03` | 設定ファイルで外出し |
-| ジョブスケジューラー | SGE (`qsub`/`qstat`) 固有 | まずはSGEのみ対応、将来スケジューラー抽象化 |
-
-### フェーズ 1（近いうち）: 設定ファイルの導入
-
-ユーザーが一度だけ書く設定ファイル `~/.auto_opt.yaml`：
+## 5. 環境設定（~/.auto_opt.yaml）
 
 ```yaml
-amber:
-  conda_init: ~/anaconda3/etc/profile.d/conda.sh  # conda の初期化スクリプト
-  conda_env: amber                                  # conda 環境名
+scheduler: sge
+queues:
+  - name: gr1.q
+    nproc: 40
+    pe: OpenMP
+  - name: gr2.q
+    nproc: 52
+    pe: OpenMP
+max_concurrent_jobs: 6
+poll_interval: 30
+nproc_reserve: 2
 
-gaussian:
-  g16root: /home/g03                               # Gaussian インストール先
-  scrdir: /scr/$JOB_ID                             # 一時ファイル置き場
-
-scheduler:
-  type: sge                                         # sge / slurm / local
-  queues:
-    - name: gr1.q
-      nproc: 40
-    - name: gr2.q
-      nproc: 52
-  max_concurrent: 6
+amber_tools:
+  antechamber: ~/anaconda3/envs/amber/bin/antechamber
+  parmchk2:    ~/anaconda3/envs/amber/bin/parmchk2
+  tleap:       ~/anaconda3/envs/amber/bin/tleap
+  sander:      ~/anaconda3/envs/amber/bin/sander
 ```
 
-コードはこのファイルを起動時に読み込み、ジョブスクリプトの中身を動的に生成する。
+---
 
-### フェーズ 2（将来）: スケジューラー抽象化
+## 6. 今後の作業リスト
 
-```
-SchedulerBase
-├── SGEScheduler   (qsub / qstat)   ← 現状
-├── SLURMScheduler (sbatch / squeue) ← 将来
-└── LocalScheduler (subprocess並列)  ← ローカル実行用
-```
-
-設定ファイルの `scheduler.type` で切り替え。
+| 状態 | 優先度 | 作業 |
+|------|--------|------|
+| ✅ | 高 | モノマー前処理 `--mode all` 実装 |
+| ✅ | 高 | `cluster.get_amber_tool()` による AmberTools パス解決 |
+| ✅ | 高 | `run.py` に monomer ステップ追加 |
+| ✅ | 高 | スタッキング IO・ドライバー・ジョブ投入を glide/screw 統合で書き直し |
+| ✅ | 高 | `sweep_stacking_vdw.py` glide/screw の分子配置を正しく分離 |
+| ✅ | 中 | `app.py` スタッキング候補選択 UI（ヒートマップ複数選択） |
+| 🔲 | 高 | `run.py` にスタッキングステップ追加 |
+| 🔲 | 中 | スタッキング動作確認（isTest → 実計算） |
+| 🔲 | 低 | Gaussian DFT ステップの整理 |

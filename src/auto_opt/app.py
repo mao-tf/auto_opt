@@ -86,13 +86,17 @@ if 'sel' not in st.session_state:
     st.session_state.sel = {}
 if 'stacking_list' not in st.session_state:
     st.session_state.stacking_list = []
-if 'editor_key' not in st.session_state:
-    st.session_state.editor_key = 0  # data_editor リセット用
+if 'select_mode' not in st.session_state:
+    st.session_state.select_mode = False   # 候補選択モード
+if 'pending_stacking' not in st.session_state:
+    st.session_state.pending_stacking = [] # 選択中の点 [{x_col:v, y_col:v}, ...]
 
-# 軸や固定パラメータが変わったらクリック選択をリセット
+# 軸や固定パラメータが変わったら選択をリセット
 _state_key = (x_col, y_col, tuple(sorted(fix_vals.items())))
 if st.session_state.get('_prev_key') != _state_key:
     st.session_state.sel = {}
+    st.session_state.select_mode = False
+    st.session_state.pending_stacking = []
     st.session_state['_prev_key'] = _state_key
 
 # ──────────────────────────────────────────────
@@ -112,8 +116,14 @@ pivot = df_fixed.pivot_table(values='E', index=y_col, columns=x_col, aggfunc='mi
 col_map, col_3d = st.columns([1, 1])
 
 with col_map:
+    select_mode = st.session_state.select_mode
+    n_pending   = len(st.session_state.pending_stacking)
+
     st.subheader(f"エネルギーマップ ({x_col} vs {y_col})")
-    st.caption("点をクリックすると右側の3D構造が更新されます")
+    if select_mode:
+        st.caption(f"**候補選択モード** — クリックで追加/解除 ({n_pending} 点選択中）")
+    else:
+        st.caption("クリックで右側の 3D 構造を更新")
 
     if pivot.shape[0] >= 2 and pivot.shape[1] >= 2:
         fig = px.imshow(
@@ -139,25 +149,35 @@ with col_map:
         showlegend=False,
     ))
 
-    # 現在選択中の点をハイライト
-    sel_x = st.session_state.sel.get(x_col)
-    sel_y = st.session_state.sel.get(y_col)
-    if sel_x is not None and sel_y is not None:
+    # 通常モード: 白丸（現在の 3D 表示点）
+    if not select_mode:
+        sel_x = st.session_state.sel.get(x_col)
+        sel_y = st.session_state.sel.get(y_col)
+        if sel_x is not None and sel_y is not None:
+            fig.add_trace(go.Scatter(
+                x=[sel_x], y=[sel_y], mode='markers',
+                marker=dict(symbol='circle-open', size=20, color='white',
+                            line=dict(width=3, color='white')),
+                showlegend=False, hoverinfo='skip',
+            ))
+
+    # 選択モード中: 黄色丸（選択中の候補点）
+    if select_mode and st.session_state.pending_stacking:
         fig.add_trace(go.Scatter(
-            x=[sel_x], y=[sel_y],
+            x=[p[x_col] for p in st.session_state.pending_stacking],
+            y=[p[y_col] for p in st.session_state.pending_stacking],
             mode='markers',
-            marker=dict(symbol='circle-open', size=20, color='white',
-                        line=dict(width=3, color='white')),
+            marker=dict(symbol='circle-open', size=20, color='yellow',
+                        line=dict(width=3, color='yellow')),
             showlegend=False, hoverinfo='skip',
         ))
 
-    # stacking_list に登録済みの点をオレンジ丸でハイライト
+    # 確定済み候補: オレンジ丸
     if st.session_state.stacking_list:
         df_stk = pd.DataFrame(st.session_state.stacking_list)
         if x_col in df_stk.columns and y_col in df_stk.columns:
             fig.add_trace(go.Scatter(
-                x=df_stk[x_col], y=df_stk[y_col],
-                mode='markers',
+                x=df_stk[x_col], y=df_stk[y_col], mode='markers',
                 marker=dict(symbol='circle-open', size=16, color='orange',
                             line=dict(width=2, color='orange')),
                 showlegend=False, hoverinfo='skip',
@@ -175,11 +195,77 @@ with col_map:
 
     if event and event.selection and event.selection.points:
         pt = event.selection.points[0]
-        if pt.get('x') is not None:
-            st.session_state.sel[x_col] = float(pt['x'])
-        if pt.get('y') is not None:
-            st.session_state.sel[y_col] = float(pt['y'])
+        cx = pt.get('x')
+        cy = pt.get('y')
+        if cx is None or cy is None:
+            pass
+        elif select_mode:
+            # 選択モード: クリックでトグル（3D ビューは更新しない）
+            cx, cy = float(cx), float(cy)
+            already = any(
+                np.isclose(p[x_col], cx, atol=1e-5) and np.isclose(p[y_col], cy, atol=1e-5)
+                for p in st.session_state.pending_stacking
+            )
+            if already:
+                st.session_state.pending_stacking = [
+                    p for p in st.session_state.pending_stacking
+                    if not (np.isclose(p[x_col], cx, atol=1e-5)
+                            and np.isclose(p[y_col], cy, atol=1e-5))
+                ]
+            else:
+                st.session_state.pending_stacking.append({x_col: float(cx), y_col: float(cy)})
+        else:
+            # 通常モード: 3D ビュー更新のみ
+            st.session_state.sel[x_col] = float(cx)
+            st.session_state.sel[y_col] = float(cy)
         st.rerun()
+
+    # ─── モード切替ボタン ─────────────────────────────────
+    st.markdown("---")
+    if not select_mode:
+        if st.button("候補構造を選ぶ", key="btn_enter_select"):
+            st.session_state.select_mode = True
+            st.rerun()
+    else:
+        c_ok, c_cancel = st.columns([1, 1])
+        with c_ok:
+            if st.button(
+                f"確定 ({n_pending} 点)",
+                key="btn_confirm_select",
+                type="primary",
+                disabled=(n_pending == 0),
+            ):
+                existing_keys = {
+                    tuple(sorted((k, round(v, 5)) for k, v in r.items()
+                                 if isinstance(v, float)))
+                    for r in st.session_state.stacking_list
+                }
+                for p in st.session_state.pending_stacking:
+                    mask_p = pd.Series([True] * len(df_fixed), index=df_fixed.index)
+                    for c, v in p.items():
+                        if c in df_fixed.columns:
+                            mask_p &= np.isclose(df_fixed[c], v, atol=1e-5)
+                    matches = df_fixed[mask_p]
+                    if not matches.empty:
+                        row_data = (
+                            matches.loc[matches['E'].idxmin()]
+                            if len(matches) > 1 else matches.iloc[0]
+                        ).to_dict()
+                        dedup_key = tuple(sorted(
+                            (k, round(v, 5)) for k, v in row_data.items()
+                            if isinstance(v, float)
+                        ))
+                        if dedup_key not in existing_keys:
+                            st.session_state.stacking_list.append(row_data)
+                            existing_keys.add(dedup_key)
+                st.session_state.pending_stacking = []
+                st.session_state.select_mode = False
+                st.rerun()
+        with c_cancel:
+            if st.button("キャンセル", key="btn_cancel_select"):
+                st.session_state.pending_stacking = []
+                st.session_state.select_mode = False
+                st.rerun()
 
 # ──────────────────────────────────────────────
 #  構造表示: クリック値 or ドロップダウンで選択
@@ -245,83 +331,36 @@ with col_3d:
         )
 
 # ──────────────────────────────────────────────
-#  スタッキング候補: テーブルでチェック選択
+#  スタッキング候補リスト
 # ──────────────────────────────────────────────
 
 st.divider()
 st.subheader("スタッキング候補リスト")
-st.caption(f"スキャン軸: **{scan_axis}** | 下のテーブルで行をチェックして追加してください")
 
-# 表示列: 軸パラメータ + E + 格子定数
-show_cols = [c for c in axis_candidates + ['E', 'a', 'b'] if c in df_fixed.columns]
-df_table = (
-    df_fixed[show_cols]
-    .sort_values('E')
-    .drop_duplicates(subset=[x_col, y_col])
-    .sort_values([x_col, y_col])
-    .reset_index(drop=True)
-)
-df_table.insert(0, '追加', False)
-
-edited = st.data_editor(
-    df_table,
-    column_config={'追加': st.column_config.CheckboxColumn('追加', default=False)},
-    disabled=[c for c in df_table.columns if c != '追加'],
-    use_container_width=True,
-    hide_index=True,
-    key=f'stacking_editor_{st.session_state.editor_key}',
-)
-
-checked = edited[edited['追加']]
-c_add, c_clear = st.columns([1, 1])
-
-with c_add:
-    btn_label = f"チェックした {len(checked)} 点を追加" if len(checked) > 0 else "追加 (0点チェック中)"
-    if st.button(btn_label, disabled=(len(checked) == 0)):
-        existing = {r.get(scan_axis) for r in st.session_state.stacking_list}
-        added = 0
-        for _, trow in checked.iterrows():
-            # df_fixed から完全な行データを取得
-            mask_t = pd.Series([True] * len(df_fixed), index=df_fixed.index)
-            for c in show_cols:
-                if c in df_fixed.columns and c in trow.index:
-                    mask_t &= np.isclose(df_fixed[c], trow[c], atol=1e-5)
-            matches = df_fixed[mask_t]
-            if matches.empty:
-                continue
-            row_data = (
-                matches.loc[matches['E'].idxmin()] if len(matches) > 1 else matches.iloc[0]
-            ).to_dict()
-            scan_val = row_data.get(scan_axis)
-            if scan_val not in existing:
-                st.session_state.stacking_list.append(row_data)
-                existing.add(scan_val)
-                added += 1
-        if added > 0:
-            st.session_state.editor_key += 1  # チェックボックスをリセット
-            st.rerun()
-        else:
-            st.warning("追加できる新しい点がありませんでした（重複または一致なし）")
-
-with c_clear:
-    if st.button("リストをクリア"):
-        st.session_state.stacking_list = []
-        st.session_state.editor_key += 1
-        st.rerun()
-
-if st.session_state.stacking_list:
+if not st.session_state.stacking_list:
+    st.caption("ヒートマップ上の「候補構造を選ぶ」で構造を選択してください")
+else:
     df_candidates = (
         pd.DataFrame(st.session_state.stacking_list)
         .sort_values(scan_axis)
         .reset_index(drop=True)
     )
-    st.dataframe(df_candidates, use_container_width=True)
-    st.download_button(
-        label="スタッキング候補 CSV ダウンロード",
-        data=df_candidates.to_csv(index=False),
-        file_name="stacking_candidates.csv",
-        mime="text/csv",
-    )
+    show_cols = [c for c in [scan_axis, x_col, y_col, 'E', 'a', 'b', 'z']
+                 if c in df_candidates.columns]
+    st.dataframe(df_candidates[show_cols], use_container_width=True)
+
+    c_dl, c_clear = st.columns([2, 1])
+    with c_dl:
+        st.download_button(
+            label="スタッキング候補 CSV ダウンロード",
+            data=df_candidates.to_csv(index=False),
+            file_name="stacking_candidates.csv",
+            mime="text/csv",
+        )
+    with c_clear:
+        if st.button("リストをクリア"):
+            st.session_state.stacking_list = []
+            st.rerun()
 
 # ──────────────────────────────────────────────
 #  スタッキングエネルギープロット
