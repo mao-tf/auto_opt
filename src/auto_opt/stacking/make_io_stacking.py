@@ -77,8 +77,9 @@ def get_pairs_xyzR(monomer_name: str, params: dict) -> List[np.ndarray]:
 
 
 def calc_E_total(E_list: List[float]) -> float:
-    """14 ペアのエネルギーを合計してスタッキングエネルギーを返す。"""
-    return float(sum(E_list))
+    """14 ペアのエネルギーからスタッキングエネルギーを計算。
+    平行ペア [0:5][9:14] は半重み（glide 対称で共有）、T字ペア [5:9] は全重み。"""
+    return float((sum(E_list[0:5]) + sum(E_list[9:14])) / 2.0 + sum(E_list[5:9]))
 
 
 def get_mol2_lines(xyzr: np.ndarray, monomer_name: str) -> List[str]:
