@@ -34,6 +34,16 @@ with st.sidebar:
     mol_style    = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
 
 # ─── ヘルパー: 3D 表示 ─────────────────────────────────────
+def _xyz_filename(row: pd.Series, sym: str) -> str:
+    """ダウンロード用 XYZ ファイル名をパラメータから生成する。"""
+    parts = [monomer_name, sym]
+    for col, fmt in [("alpha", ".1f"), ("beta", ".1f"), ("phi", ".1f"), ("z", ".2f")]:
+        if col in row.index:
+            val = float(row[col])
+            parts.append(f"{col}{val:{fmt}}")
+    return "_".join(parts) + ".xyz"
+
+
 def _render_3d(row: pd.Series, sym: str, *, key_suffix: str = "") -> None:
     """9分子クラスター 3D 表示とダウンロードボタンを描画する。"""
     try:
@@ -53,7 +63,7 @@ def _render_3d(row: pd.Series, sym: str, *, key_suffix: str = "") -> None:
     st.download_button(
         label="XYZ ダウンロード",
         data=xyz_str,
-        file_name=f"{monomer_name}_cluster.xyz",
+        file_name=_xyz_filename(row, sym),
         mime="text/plain",
         key=f"dl_xyz_{key_suffix}",
     )
