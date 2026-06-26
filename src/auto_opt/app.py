@@ -352,12 +352,14 @@ with tab_vdw:
             for axis, cfg in param_cfg.items():
                 if isinstance(cfg, dict):
                     n_vdw_pts *= max(1, round((cfg["max"] - cfg["min"]) / cfg["step"]) + 1)
-            n_dim   = _N_DIMERS[vdw_sym]
-            wall_s  = n_vdw_pts * n_dim * _SEC_PER_CALC / max(n_nodes, 1)
+            n_dim  = _N_DIMERS[vdw_sym]
+            # 各VdW初期点で(a,b)周辺を最低9点探索、各点でn_dimダイマー計算
+            wall_s = n_vdw_pts * 9 * n_dim * _SEC_PER_CALC / max(n_nodes, 1)
             wall_str = f"{wall_s:.0f} 秒" if wall_s < 60 else f"{wall_s / 60:.1f} 分"
             st.info(
-                f"VdW スキャン点数（上限）: **{n_vdw_pts}** 点 ｜ "
-                f"Amber 予想時間: **{wall_str}**（{n_nodes} ノード並列）"
+                f"VdW 初期点数: **{n_vdw_pts}** 点 ｜ "
+                f"Amber 予想時間: **{wall_str} 以上**"
+                f"（各初期点 × 9近傍 × {n_dim}ダイマー、{n_nodes}ノード並列）"
             )
 
             # run_config.yaml 生成
