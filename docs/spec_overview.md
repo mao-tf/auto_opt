@@ -1,6 +1,6 @@
 # auto_opt システム仕様書
 
-最終更新: 2026-06-26
+最終更新: 2026-06-26（Tab 0 追加）
 
 ---
 
@@ -149,7 +149,20 @@
 streamlit run src/auto_opt/app.py
 ```
 
-3タブ構成。
+4タブ構成。
+
+**Tab 0: セットアップ**
+
+| 機能 | 説明 |
+|------|------|
+| monomer.xyz アップロード | 前処理前の粗い構造 → HPC 転送用にダウンロード |
+| 対称性 / 電荷 / 多重度 | glide or screw、Gaussian 計算パラメータ |
+| HPC 設定 | user@hostname、作業ディレクトリ、auto_dir |
+| Amber Tools パス | スパコン上の bin ディレクトリ。キュー設定（gr1.q / gr2.q）も入力 |
+| 粗VdWパラメータ | デフォルト値入り（glide: α0-90/10°, φ-10-10/4°, z-2-2/0.5; screw: +β-20-20/5°） |
+| ~/.auto_opt.yaml 生成 | 入力値から生成、コードブロック表示 + ダウンロード |
+| run_config.yaml 生成 | monomer_xyz パス付きで生成 + ダウンロード |
+| コマンド表示 | scp 転送コマンド（ローカル実行）＋ `python -m auto_opt.run --start-from monomer --stop-after vdw`（スパコン実行） |
 
 **Tab 1: VdW スキャン**
 

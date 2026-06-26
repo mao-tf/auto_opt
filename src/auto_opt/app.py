@@ -154,7 +154,215 @@ def _render_heatmap(
 # ══════════════════════════════════════════════════════════
 #  タブ定義
 # ══════════════════════════════════════════════════════════
-tab_vdw, tab_layer, tab_stack = st.tabs(["VdW スキャン", "層内最適化", "スタッキング結果"])
+tab_setup, tab_vdw, tab_layer, tab_stack = st.tabs(
+    ["セットアップ", "VdW スキャン", "層内最適化", "スタッキング結果"]
+)
+
+
+# ══════════════════════════════════════════════════════════
+#  Tab 0: セットアップ
+# ══════════════════════════════════════════════════════════
+with tab_setup:
+    st.subheader("Step 1: モノマー")
+    xyz_setup = st.file_uploader(
+        "monomer.xyz（前処理前の粗い構造）", type=["xyz"], key="setup_xyz"
+    )
+
+    c1, c2, c3 = st.columns(3)
+    setup_sym    = c1.selectbox("対称性", ["glide", "screw"], key="setup_sym")
+    setup_charge = c2.number_input("電荷", value=0, step=1, key="setup_charge")
+    setup_mult   = c3.number_input("多重度", value=1, min_value=1, step=1, key="setup_mult")
+
+    st.subheader("Step 2: HPC 設定")
+    c4, c5 = st.columns(2)
+    hpc_host    = c4.text_input("HPC ホスト", placeholder="user@cmdell81", key="setup_hpc_host")
+    hpc_workdir = c5.text_input(
+        "HPC 作業ディレクトリ",
+        placeholder=f"/home/user/projects/{monomer_name}",
+        key="setup_hpc_workdir",
+    )
+    setup_auto_dir = st.text_input(
+        "実行ディレクトリ (auto_dir)",
+        value=f"runs/{monomer_name}_{setup_sym}",
+        key="setup_auto_dir",
+    )
+
+    st.subheader("Step 3: Amber Tools パス（スパコン上）")
+    amber_bin = st.text_input(
+        "Amber bin ディレクトリ", value="~/anaconda3/envs/amber/bin", key="setup_amber_bin"
+    )
+
+    c6, c7 = st.columns(2)
+    with c6:
+        st.caption("キュー 1")
+        q1_name  = st.text_input("名前", value="gr1.q",   key="setup_q1_name")
+        q1_nproc = st.number_input("nproc", value=40,     key="setup_q1_nproc")
+        q1_pe    = st.text_input("pe",  value="OpenMP",   key="setup_q1_pe")
+    with c7:
+        st.caption("キュー 2")
+        q2_name  = st.text_input("名前", value="gr2.q",   key="setup_q2_name")
+        q2_nproc = st.number_input("nproc", value=52,     key="setup_q2_nproc")
+        q2_pe    = st.text_input("pe",  value="OpenMP",   key="setup_q2_pe")
+
+    ca, cb, cc = st.columns(3)
+    max_jobs      = ca.number_input("max_concurrent_jobs", value=6,  min_value=1, key="setup_max_jobs")
+    poll_interval = cb.number_input("poll_interval (秒)",  value=30, min_value=5, key="setup_poll")
+    nproc_reserve = cc.number_input("nproc_reserve",       value=2,  min_value=0, key="setup_nproc_res")
+
+    st.subheader("Step 4: 粗VdWスキャンパラメータ")
+
+    _DEFAULT_VDW_SETUP = {
+        "glide": {
+            "alpha": {"min": 0.0,  "max": 90.0, "step": 10.0},
+            "phi":   {"min": -10.0,"max": 10.0, "step": 4.0},
+            "z":     {"min": -2.0, "max": 2.0,  "step": 0.5},
+        },
+        "screw": {
+            "alpha": {"min": 0.0,  "max": 90.0, "step": 10.0},
+            "phi":   {"min": -10.0,"max": 10.0, "step": 4.0},
+            "z":     {"min": -2.0, "max": 2.0,  "step": 0.5},
+            "beta":  {"min": -20.0,"max": 20.0, "step": 5.0},
+        },
+    }
+    _defs = _DEFAULT_VDW_SETUP[setup_sym]
+    _axes_setup = ["alpha", "phi", "z"] + (["beta"] if setup_sym == "screw" else [])
+
+    setup_param_cfg: dict[str, dict] = {}
+    for _axis in _axes_setup:
+        _d = _defs[_axis]
+        with st.expander(_axis, expanded=True):
+            _c1, _c2, _c3 = st.columns(3)
+            _pmin  = _c1.number_input("min",  value=_d["min"],  key=f"setup_{_axis}_min")
+            _pmax  = _c2.number_input("max",  value=_d["max"],  key=f"setup_{_axis}_max")
+            _pstep = _c3.number_input("step", value=_d["step"], min_value=0.001,
+                                      key=f"setup_{_axis}_step")
+        setup_param_cfg[_axis] = {"min": _pmin, "max": _pmax, "step": _pstep}
+
+    if setup_sym == "glide":
+        theta_c_step_setup = st.number_input(
+            "theta_c_step (°)", value=5.0, min_value=1.0, key="setup_theta_c_step"
+        )
+        setup_vdw_select = st.multiselect(
+            "vdw_select",
+            ["all", "a-stack", "b-stack", "local_min"],
+            default=["a-stack", "b-stack"],
+            key="setup_vdw_select",
+        )
+        if not setup_vdw_select:
+            setup_vdw_select = ["all"]
+    else:
+        theta_c_step_setup = 5.0
+        setup_vdw_select = ["all"]
+
+    setup_n_nodes = st.number_input(
+        "並列ノード数", min_value=1, max_value=200, value=6, key="setup_n_nodes"
+    )
+
+    # ─── 生成物 ──────────────────────────────────────────
+    st.divider()
+    st.subheader("生成物")
+
+    # モノマー XYZ ダウンロード
+    if xyz_setup is not None:
+        st.download_button(
+            label=f"{monomer_name}_raw.xyz をダウンロード",
+            data=xyz_setup.read(),
+            file_name=f"{monomer_name}_raw.xyz",
+            mime="text/plain",
+            key="dl_monomer_xyz",
+        )
+
+    # ~/.auto_opt.yaml テンプレート
+    _amber_bin = amber_bin.rstrip("/")
+    _auto_opt_yaml = (
+        f"scheduler: sge\n"
+        f"queues:\n"
+        f"  - name: {q1_name}\n"
+        f"    nproc: {int(q1_nproc)}\n"
+        f"    pe: {q1_pe}\n"
+        f"  - name: {q2_name}\n"
+        f"    nproc: {int(q2_nproc)}\n"
+        f"    pe: {q2_pe}\n"
+        f"max_concurrent_jobs: {int(max_jobs)}\n"
+        f"poll_interval: {int(poll_interval)}\n"
+        f"nproc_reserve: {int(nproc_reserve)}\n\n"
+        f"amber_tools:\n"
+        f"  antechamber: {_amber_bin}/antechamber\n"
+        f"  parmchk2:    {_amber_bin}/parmchk2\n"
+        f"  tleap:       {_amber_bin}/tleap\n"
+        f"  sander:      {_amber_bin}/sander\n"
+    )
+    with st.expander("~/.auto_opt.yaml", expanded=True):
+        st.code(_auto_opt_yaml, language="yaml")
+        st.download_button(
+            label="auto_opt.yaml をダウンロード",
+            data=_auto_opt_yaml,
+            file_name="auto_opt.yaml",
+            mime="text/plain",
+            key="dl_auto_opt_yaml",
+        )
+
+    # run_config.yaml
+    _hpc_workdir_out  = hpc_workdir.strip() or f"/path/to/{monomer_name}"
+    _auto_dir_out     = setup_auto_dir.strip() or f"runs/{monomer_name}_{setup_sym}"
+    _monomer_xyz_path = f"{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz"
+
+    _params_yaml = ""
+    for _axis in ["z", "alpha", "phi"] + (["beta"] if setup_sym == "screw" else []):
+        _cfg = setup_param_cfg[_axis]
+        _params_yaml += (
+            f"  {_axis}:\n"
+            f"    min: {_cfg['min']}\n"
+            f"    max: {_cfg['max']}\n"
+            f"    step: {_cfg['step']}\n\n"
+        )
+    if setup_sym == "glide":
+        _params_yaml += f"  theta_c_step: {theta_c_step_setup}\n"
+
+    if len(setup_vdw_select) == 1:
+        _vdw_select_yaml = setup_vdw_select[0]
+    else:
+        _vdw_select_yaml = "\n" + "".join(f"  - {v}\n" for v in setup_vdw_select)
+
+    _run_config_setup = (
+        f"monomer: {monomer_name}\n"
+        f"symmetry: {setup_sym}\n"
+        f"auto_dir: {_auto_dir_out}\n"
+        f"monomer_xyz: {_monomer_xyz_path}\n\n"
+        f"charge: {int(setup_charge)}\n"
+        f"mult: {int(setup_mult)}\n\n"
+        f"parameters:\n{_params_yaml}\n"
+        f"vdw_select: {_vdw_select_yaml}\n"
+        f"amber:\n"
+        f"  num_nodes: {int(setup_n_nodes)}\n"
+    )
+    with st.expander("run_config.yaml", expanded=True):
+        st.code(_run_config_setup, language="yaml")
+        st.download_button(
+            label="run_config.yaml をダウンロード",
+            data=_run_config_setup,
+            file_name="run_config.yaml",
+            mime="text/plain",
+            key="dl_run_config_setup",
+        )
+
+    # コマンド
+    st.subheader("コマンド")
+    _hpc_host_out = hpc_host.strip() or "user@hpc"
+    st.caption("ローカルで実行 — スパコンへファイル転送")
+    st.code(
+        f"scp {monomer_name}_raw.xyz {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/\n"
+        f"scp run_config.yaml       {_hpc_host_out}:{_hpc_workdir_out}/\n"
+        f"scp auto_opt.yaml         {_hpc_host_out}:~/.auto_opt.yaml  # 初回のみ",
+        language="bash",
+    )
+    st.caption("スパコン上で実行")
+    st.code(
+        f"cd {_hpc_workdir_out}\n"
+        f"python -m auto_opt.run --config run_config.yaml"
+        f" --start-from monomer --stop-after vdw",
+        language="bash",
+    )
 
 
 # ══════════════════════════════════════════════════════════
