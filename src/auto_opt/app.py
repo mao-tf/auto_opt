@@ -61,7 +61,7 @@ with st.sidebar:
     y_col = st.selectbox("Y 軸", y_options, index=0)
 
     st.subheader("スタッキング")
-    scan_axis = st.selectbox("スキャン軸", axis_candidates, key="scan_axis_sel")
+    scan_axis = st.selectbox("自動選択の軸", axis_candidates, key="scan_axis_sel")
     stacking_uploaded = st.file_uploader(
         "stacking_results.csv (任意)", type="csv", key="stacking_csv"
     )
@@ -337,8 +337,29 @@ with col_3d:
 st.divider()
 st.subheader("スタッキング候補リスト")
 
+# 自動選択ボタン
+if st.button(f"各 {scan_axis} の最安定構造を自動追加", key="btn_auto_select"):
+    existing_keys = {
+        tuple(sorted((k, round(v, 5)) for k, v in r.items() if isinstance(v, float)))
+        for r in st.session_state.stacking_list
+    }
+    added = 0
+    for axis_val, grp in df_fixed.groupby(scan_axis):
+        best_row = grp.loc[grp['E'].idxmin()].to_dict()
+        dedup_key = tuple(sorted(
+            (k, round(v, 5)) for k, v in best_row.items() if isinstance(v, float)
+        ))
+        if dedup_key not in existing_keys:
+            st.session_state.stacking_list.append(best_row)
+            existing_keys.add(dedup_key)
+            added += 1
+    if added:
+        st.rerun()
+    else:
+        st.info("追加できる新しい点がありませんでした（すでに全て登録済み）")
+
 if not st.session_state.stacking_list:
-    st.caption("ヒートマップ上の「候補構造を選ぶ」で構造を選択してください")
+    st.caption("上のボタンで自動追加、またはヒートマップ上の「候補構造を選ぶ」で手動選択してください")
 else:
     df_candidates = (
         pd.DataFrame(st.session_state.stacking_list)
