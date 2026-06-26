@@ -158,8 +158,8 @@ streamlit run src/auto_opt/app.py
 | a×b ヒートマップ | `step1_init_params.csv` から任意の2軸で格子面積マップを表示 |
 | 3D 表示 | クリックした点の9分子クラスターを py3Dmol で表示（E列なしでも動作） |
 | structure_type フィルタ | a-stack / b-stack / local_min を選択 |
-| Amber コマンド生成 | 計算点数・予想時間を表示し、スパコン用コマンドをテキスト出力 |
-| CSV ダウンロード | 絞り込み済み `step1_init_params.csv` をダウンロード |
+| 精細スキャン設定 | 各変数の min/max/step を設定 → `run_config.yaml` をダウンロード |
+| コマンド表示 | `python -m auto_opt.run --config run_config.yaml` を表示（VdW→Amber→collect を一括実行） |
 
 **Tab 2: 層内最適化**
 

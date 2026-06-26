@@ -287,57 +287,115 @@ with tab_vdw:
                     st.caption(info)
                     _render_3d(row_v, vdw_sym, key_suffix="vdw")
 
-            # ─── Amber 最適化コマンド生成 ─────────────────
+            # ─── 精細スキャン設定 → run_config.yaml 生成 ────
             st.divider()
-            st.subheader("Amber 最適化コマンド生成")
+            st.subheader("精細スキャン設定")
             st.caption(
-                "ここで設定した内容をもとに、スパコンで実行するコマンドを生成します。"
+                "スキャンする変数の範囲と刻みを設定して run_config.yaml を生成します。"
+                " スパコンで `python -m auto_opt.run --config run_config.yaml` を実行すると"
+                " VdW → Amber → 結果収集 まで一気に処理されます。"
             )
 
-            hpc_dir = st.text_input(
-                "HPC 上の実行ディレクトリ",
-                placeholder="/home/user/runs/BTBT_glide",
-                key="vdw_hpc_dir",
+            # 基本設定
+            ca, cb = st.columns(2)
+            auto_dir_str = ca.text_input(
+                "HPC 上の実行ディレクトリ (auto_dir)",
+                placeholder=f"runs/{monomer_name}_{vdw_sym}",
+                key="vdw_auto_dir",
             )
-            n_nodes = st.number_input(
+            n_nodes = cb.number_input(
                 "並列ノード数", min_value=1, max_value=200, value=6, key="vdw_n_nodes"
             )
 
-            n_pts   = len(vdw_fixed)
-            n_dim   = _N_DIMERS[vdw_sym]
-            wall_s  = n_pts * n_dim * _SEC_PER_CALC / n_nodes
-            wall_str = f"{wall_s:.0f} 秒" if wall_s < 60 else f"{wall_s / 60:.1f} 分"
+            # 各軸のデフォルト値を現在の VdW データから取得
+            def _axis_range(col):
+                if col not in vdw_df.columns:
+                    return None, None
+                return float(vdw_df[col].min()), float(vdw_df[col].max())
 
-            st.info(
-                f"計算点数: **{n_pts}** 点 ｜ "
-                f"ダイマー数/点: **{n_dim}** ｜ "
-                f"予想計算時間: **{wall_str}**（{n_nodes} ノード並列）"
-            )
+            # スキャンパラメータ入力
+            _DEFAULT_STEP = {"alpha": 10.0, "phi": 4.0, "z": 0.5, "beta": 5.0}
+            param_cfg: dict[str, dict] = {}
 
-            job_mod = "auto_opt.amber.job_phi" if vdw_sym == "glide" else "auto_opt.amber.job_screw_phi"
-            hpc_dir_str = hpc_dir.strip() or "<HPC_DIR>"
-            cmd_lines = [
-                f"python -m {job_mod} \\",
-                f"    --auto-dir {hpc_dir_str} \\",
-                f"    --monomer-name {monomer_name}",
-            ]
-            st.code("\n".join(cmd_lines), language="bash")
-            st.caption(
-                "※ step1_init_params.csv は VdW スキャン後に HPC の `--auto-dir` に置いてください。"
-            )
+            axes_to_show = ["alpha", "phi", "z"] + (["beta"] if vdw_sym == "screw" else [])
+            for axis in axes_to_show:
+                lo, hi = _axis_range(axis)
+                default_lo = lo if lo is not None else 0.0
+                default_hi = hi if hi is not None else 90.0
+                default_step = _DEFAULT_STEP.get(axis, 5.0)
 
-            if "a*b" in vdw_fixed.columns:
-                dl_cols = list(dict.fromkeys(
-                    c for c in vdw_axes + ["a", "b", "a*b", "structure_type"]
-                    if c in vdw_fixed.columns
-                ))
-                st.download_button(
-                    label="現在の絞り込み結果を step1_init_params.csv としてダウンロード",
-                    data=vdw_fixed[dl_cols].to_csv(index=False),
-                    file_name="step1_init_params.csv",
-                    mime="text/csv",
-                    key="dl_vdw_filtered",
+                with st.expander(f"{axis}", expanded=True):
+                    c1, c2, c3 = st.columns(3)
+                    p_min  = c1.number_input("min",  value=default_lo, key=f"p_{axis}_min")
+                    p_max  = c2.number_input("max",  value=default_hi, key=f"p_{axis}_max")
+                    p_step = c3.number_input("step", value=default_step, min_value=0.001,
+                                             key=f"p_{axis}_step")
+                param_cfg[axis] = {"min": p_min, "max": p_max, "step": p_step}
+
+            # glide のみ: theta_c_step と vdw_select
+            if vdw_sym == "glide":
+                cg1, cg2 = st.columns(2)
+                theta_c_step = cg1.number_input(
+                    "theta_c_step (VdW 接触角刻み°)", value=5.0, min_value=1.0,
+                    key="p_theta_c_step"
                 )
+                vdw_select = cg2.selectbox(
+                    "vdw_select", ["all", "a-stack", "b-stack", "local_min"],
+                    key="p_vdw_select"
+                )
+                param_cfg["theta_c_step"] = theta_c_step
+            else:
+                vdw_select = "all"
+
+            # 計算点数・予想時間
+            n_vdw_pts = 1
+            for axis, cfg in param_cfg.items():
+                if isinstance(cfg, dict):
+                    n_vdw_pts *= max(1, round((cfg["max"] - cfg["min"]) / cfg["step"]) + 1)
+            n_dim   = _N_DIMERS[vdw_sym]
+            wall_s  = n_vdw_pts * n_dim * _SEC_PER_CALC / max(n_nodes, 1)
+            wall_str = f"{wall_s:.0f} 秒" if wall_s < 60 else f"{wall_s / 60:.1f} 分"
+            st.info(
+                f"VdW スキャン点数（上限）: **{n_vdw_pts}** 点 ｜ "
+                f"Amber 予想時間: **{wall_str}**（{n_nodes} ノード並列）"
+            )
+
+            # run_config.yaml 生成
+            auto_dir_out = auto_dir_str.strip() or f"runs/{monomer_name}_{vdw_sym}"
+            params_yaml = ""
+            for axis in ["z", "alpha", "phi"] + (["beta"] if vdw_sym == "screw" else []):
+                cfg = param_cfg[axis]
+                params_yaml += (
+                    f"  {axis}:\n"
+                    f"    min: {cfg['min']}\n"
+                    f"    max: {cfg['max']}\n"
+                    f"    step: {cfg['step']}\n\n"
+                )
+            if vdw_sym == "glide":
+                params_yaml += f"  theta_c_step: {param_cfg['theta_c_step']}\n"
+
+            run_config_yaml = (
+                f"monomer: {monomer_name}\n"
+                f"symmetry: {vdw_sym}\n"
+                f"auto_dir: {auto_dir_out}\n\n"
+                f"parameters:\n{params_yaml}\n"
+                f"vdw_select: {vdw_select}\n\n"
+                f"amber:\n"
+                f"  num_nodes: {int(n_nodes)}\n"
+            )
+
+            st.download_button(
+                label="run_config.yaml をダウンロード",
+                data=run_config_yaml,
+                file_name="run_config.yaml",
+                mime="text/plain",
+                key="dl_run_config",
+            )
+
+            st.code(
+                f"python -m auto_opt.run --config run_config.yaml",
+                language="bash",
+            )
 
 
 # ══════════════════════════════════════════════════════════
