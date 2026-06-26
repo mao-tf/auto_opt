@@ -86,11 +86,14 @@ if 'sel' not in st.session_state:
     st.session_state.sel = {}
 if 'stacking_list' not in st.session_state:
     st.session_state.stacking_list = []
+if 'heatmap_selection' not in st.session_state:
+    st.session_state.heatmap_selection = []   # 複数選択点 [{x_col: v, y_col: v}, ...]
 
 # 軸や固定パラメータが変わったらクリック選択をリセット
 _state_key = (x_col, y_col, tuple(sorted(fix_vals.items())))
 if st.session_state.get('_prev_key') != _state_key:
     st.session_state.sel = {}
+    st.session_state.heatmap_selection = []
     st.session_state['_prev_key'] = _state_key
 
 # ──────────────────────────────────────────────
@@ -110,8 +113,13 @@ pivot = df_fixed.pivot_table(values='E', index=y_col, columns=x_col, aggfunc='mi
 col_map, col_3d = st.columns([1, 1])
 
 with col_map:
+    n_sel = len(st.session_state.heatmap_selection)
     st.subheader(f"エネルギーマップ ({x_col} vs {y_col})")
-    st.caption("点をクリックすると右側の3D構造が更新されます")
+    st.caption(
+        "クリック: 3D 表示を更新 | "
+        "ツールバーの□でドラッグ選択 → 複数点を一括追加 | "
+        f"現在 **{n_sel}** 点選択中"
+    )
 
     # ベース: ヒートマップ or 空の図
     if pivot.shape[0] >= 2 and pivot.shape[1] >= 2:
@@ -140,7 +148,7 @@ with col_map:
         showlegend=False,
     ))
 
-    # 現在選択中の点をハイライト
+    # 単一クリック: 白丸でハイライト
     sel_x = st.session_state.sel.get(x_col)
     sel_y = st.session_state.sel.get(y_col)
     if sel_x is not None and sel_y is not None:
@@ -149,6 +157,17 @@ with col_map:
             mode='markers',
             marker=dict(symbol='circle-open', size=20, color='white',
                         line=dict(width=3, color='white')),
+            showlegend=False, hoverinfo='skip',
+        ))
+
+    # 複数選択: 黄色丸でハイライト
+    if st.session_state.heatmap_selection:
+        fig.add_trace(go.Scatter(
+            x=[p[x_col] for p in st.session_state.heatmap_selection],
+            y=[p[y_col] for p in st.session_state.heatmap_selection],
+            mode='markers',
+            marker=dict(symbol='circle-open', size=18, color='yellow',
+                        line=dict(width=2, color='yellow')),
             showlegend=False, hoverinfo='skip',
         ))
 
@@ -162,15 +181,25 @@ with col_map:
         on_select='rerun', key='heatmap_chart',
     )
 
-    # クリックされた点を session_state に保存
+    # 選択イベントを処理
     if event and event.selection and event.selection.points:
-        pt = event.selection.points[0]
-        clicked_x = pt.get('x')
-        clicked_y = pt.get('y')
-        if clicked_x is not None:
-            st.session_state.sel[x_col] = float(clicked_x)
-        if clicked_y is not None:
-            st.session_state.sel[y_col] = float(clicked_y)
+        pts = event.selection.points
+        if len(pts) == 1:
+            # 単一クリック: 3D ビュー更新 + 選択リストを1点に
+            pt = pts[0]
+            if pt.get('x') is not None:
+                st.session_state.sel[x_col] = float(pt['x'])
+            if pt.get('y') is not None:
+                st.session_state.sel[y_col] = float(pt['y'])
+            st.session_state.heatmap_selection = [
+                {x_col: float(pt['x']), y_col: float(pt['y'])}
+            ]
+        else:
+            # 複数選択（ドラッグ選択）: 選択リストを更新、3D ビューは変えない
+            st.session_state.heatmap_selection = [
+                {x_col: float(p['x']), y_col: float(p['y'])}
+                for p in pts if p.get('x') is not None and p.get('y') is not None
+            ]
         st.rerun()
 
 # ──────────────────────────────────────────────
@@ -245,14 +274,13 @@ with col_3d:
 
 st.divider()
 st.subheader("スタッキング候補リスト")
-st.caption(
-    f"スキャン軸: **{scan_axis}** | "
-    "ヒートマップで構造を選択して「追加」してください"
-)
+st.caption(f"スキャン軸: **{scan_axis}**")
 
-c_add, c_clear = st.columns([1, 1])
-with c_add:
-    if st.button("現在の構造を追加"):
+n_sel = len(st.session_state.heatmap_selection)
+c_add1, c_add_multi, c_clear = st.columns([1, 1, 1])
+
+with c_add1:
+    if st.button("現在の構造を追加 (1点)"):
         if not rows.empty:
             row_data = (
                 rows.loc[rows['E'].idxmin()] if len(rows) > 1 else rows.iloc[0]
@@ -264,9 +292,42 @@ with c_add:
                 st.rerun()
             else:
                 st.warning(f"{scan_axis}={scan_val} は既にリストにあります")
+
+with c_add_multi:
+    btn_label = f"選択中の {n_sel} 点を追加" if n_sel > 0 else "選択中の点を追加 (0点)"
+    if st.button(btn_label, disabled=(n_sel == 0)):
+        added = 0
+        existing = [r.get(scan_axis) for r in st.session_state.stacking_list]
+        for sel_pt in st.session_state.heatmap_selection:
+            px_val = sel_pt.get(x_col)
+            py_val = sel_pt.get(y_col)
+            if px_val is None or py_val is None:
+                continue
+            mask = (
+                np.isclose(df_fixed[x_col], px_val, atol=1e-5) &
+                np.isclose(df_fixed[y_col], py_val, atol=1e-5)
+            )
+            matches = df_fixed[mask]
+            if matches.empty:
+                continue
+            row_data = (
+                matches.loc[matches['E'].idxmin()] if len(matches) > 1 else matches.iloc[0]
+            ).to_dict()
+            scan_val = row_data.get(scan_axis)
+            if scan_val not in existing:
+                st.session_state.stacking_list.append(row_data)
+                existing.append(scan_val)
+                added += 1
+        if added > 0:
+            st.session_state.heatmap_selection = []
+            st.rerun()
+        else:
+            st.warning("追加できる新しい点がありませんでした")
+
 with c_clear:
     if st.button("リストをクリア"):
         st.session_state.stacking_list = []
+        st.session_state.heatmap_selection = []
         st.rerun()
 
 if st.session_state.stacking_list:
