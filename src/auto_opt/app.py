@@ -331,10 +331,6 @@ with tab_layer:
     layer_uploaded = st.file_uploader(
         "filtered_step1.csv (Amber 最適化結果)", type="csv", key="layer_csv"
     )
-    stacking_uploaded = st.file_uploader(
-        "stacking_results.csv (スタッキング結果・任意)", type="csv", key="stacking_csv"
-    )
-
     if layer_uploaded is None:
         st.info("filtered_step1.csv をアップロードしてください。")
     else:
@@ -596,37 +592,6 @@ with tab_layer:
                         st.session_state.stacking_list = []
                         st.rerun()
 
-        # ─── スタッキングエネルギープロット ──────────────
-        if stacking_uploaded is not None:
-            st.divider()
-            st.subheader("スタッキングエネルギープロット")
-            df_sr = pd.read_csv(stacking_uploaded)
-            x_col_s = scan_axis if scan_axis in df_sr.columns else df_sr.columns[0]
-            fig_s = go.Figure()
-            for col, color, name in [
-                ("E_layer", "royalblue", "層内 E_layer"),
-                ("E_stack", "tomato",    "層間 E_stack"),
-                ("E_total", "seagreen",  "合計 E_total"),
-            ]:
-                if col in df_sr.columns:
-                    fig_s.add_trace(go.Scatter(
-                        x=df_sr[x_col_s], y=df_sr[col],
-                        mode="lines+markers", name=name,
-                        line=dict(color=color),
-                    ))
-            fig_s.update_layout(
-                xaxis_title=x_col_s,
-                yaxis_title="E (kcal/mol)",
-                margin=dict(l=20, r=20, t=30, b=20),
-            )
-            st.plotly_chart(fig_s, use_container_width=True)
-            st.download_button(
-                label="スタッキング結果 CSV ダウンロード",
-                data=df_sr.to_csv(index=False),
-                file_name="stacking_results.csv",
-                mime="text/csv",
-                key="dl_stacking_results_layer",
-            )
 
 
 # ══════════════════════════════════════════════════════════
