@@ -230,10 +230,16 @@ with tab_vdw:
                 st.subheader(f"a×b マップ ({vdw_x} vs {vdw_y})")
                 st.caption("クリックで右側の 3D 構造を更新")
 
+                vdw_current_pt = None
+                sx_v = st.session_state.vdw_sel.get(vdw_x)
+                sy_v = st.session_state.vdw_sel.get(vdw_y)
+                if sx_v is not None and sy_v is not None:
+                    vdw_current_pt = {vdw_x: sx_v, vdw_y: sy_v}
+
                 event_v = _render_heatmap(
                     vdw_fixed, vdw_fixed,
                     vdw_x, vdw_y, val_col_vdw, "a×b (Å²)",
-                    sel_pts=None,
+                    current_pt=vdw_current_pt,
                     chart_key="vdw_heatmap",
                 )
 

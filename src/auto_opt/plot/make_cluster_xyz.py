@@ -149,12 +149,14 @@ def make_cluster_xyz(
     a     = float(row['a'])
     b     = float(row['b'])
 
+    e_str = f" | E={float(row['E']):.3f} kcal/mol" if 'E' in row.index else ""
+
     if symmetry == 'glide':
         syms, coords = _cluster_glide(monomer_name, a, b, z, alpha, phi, mdir)
         comment = (
             f"{monomer_name} glide cluster | "
-            f"alpha={alpha:.1f} phi={phi:.1f} a={a:.3f} b={b:.3f} z={z:.3f} | "
-            f"E={float(row['E']):.3f} kcal/mol"
+            f"alpha={alpha:.1f} phi={phi:.1f} a={a:.3f} b={b:.3f} z={z:.3f}"
+            f"{e_str}"
         )
     elif symmetry == 'screw':
         beta = float(row.get('beta', 0.0))
@@ -166,8 +168,8 @@ def make_cluster_xyz(
         comment = (
             f"{monomer_name} screw cluster | "
             f"alpha={alpha:.1f} beta={beta:.1f} phi={phi:.1f} "
-            f"a={a:.3f} b={b:.3f} bt1={bt1:.3f} bt2={bt2:.3f} z={z:.3f} | "
-            f"E={float(row['E']):.3f} kcal/mol"
+            f"a={a:.3f} b={b:.3f} bt1={bt1:.3f} bt2={bt2:.3f} z={z:.3f}"
+            f"{e_str}"
         )
     else:
         raise ValueError(f"symmetry は 'glide' または 'screw': {symmetry!r}")

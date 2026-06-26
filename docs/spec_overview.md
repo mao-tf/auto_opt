@@ -149,13 +149,35 @@
 streamlit run src/auto_opt/app.py
 ```
 
+3タブ構成。
+
+**Tab 1: VdW スキャン**
+
 | 機能 | 説明 |
 |------|------|
-| ヒートマップ | `filtered_step1.csv` から任意の2軸でエネルギーマップを表示 |
+| a×b ヒートマップ | `step1_init_params.csv` から任意の2軸で格子面積マップを表示 |
+| 3D 表示 | クリックした点の9分子クラスターを py3Dmol で表示（E列なしでも動作） |
+| structure_type フィルタ | a-stack / b-stack / local_min を選択 |
+| Amber コマンド生成 | 計算点数・予想時間を表示し、スパコン用コマンドをテキスト出力 |
+| CSV ダウンロード | 絞り込み済み `step1_init_params.csv` をダウンロード |
+
+**Tab 2: 層内最適化**
+
+| 機能 | 説明 |
+|------|------|
+| E ヒートマップ | `filtered_step1.csv` から任意の2軸でエネルギーマップを表示 |
 | 3D 表示 | クリックした点の9分子クラスターを py3Dmol で表示 |
 | 候補構造を選ぶモード | ボタンで入る。クリックで複数点をトグル選択し、確定で追加 |
+| 自動追加 | 指定軸の各値でEが最小の構造を一括追加 |
 | CSV ダウンロード | `stacking_candidates.csv` として出力 |
+
+**Tab 3: スタッキング結果**
+
+| 機能 | 説明 |
+|------|------|
 | 結果プロット | `stacking_results.csv` を読み込み E_layer/E_stack/E_total を1Dプロット |
+
+**XYZ ファイル名**: `{モノマー}_{symmetry}_alpha{val}_phi{val}_z{val}.xyz` 形式（screw は beta も含む）
 
 ---
 
