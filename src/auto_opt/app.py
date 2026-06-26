@@ -345,8 +345,10 @@ else:
         .sort_values(scan_axis)
         .reset_index(drop=True)
     )
-    show_cols = [c for c in [scan_axis, x_col, y_col, 'E', 'a', 'b', 'z']
-                 if c in df_candidates.columns]
+    show_cols = list(dict.fromkeys(
+        c for c in [scan_axis, x_col, y_col, 'E', 'a', 'b', 'z']
+        if c in df_candidates.columns
+    ))
     st.dataframe(df_candidates[show_cols], use_container_width=True)
 
     c_dl, c_clear = st.columns([2, 1])
