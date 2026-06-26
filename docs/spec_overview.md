@@ -315,6 +315,38 @@ amber_tools:
 | ✅ | 高 | スタッキング IO・ドライバー・ジョブ投入を glide/screw 統合で書き直し |
 | ✅ | 高 | `sweep_stacking_vdw.py` glide/screw の分子配置を正しく分離 |
 | ✅ | 中 | `app.py` スタッキング候補選択 UI（ヒートマップ複数選択） |
+| ✅ | 高 | `app.py` Tab 0 セットアップUI実装 |
+| ✅ | 中 | `data_dir` を `run_config.yaml` で指定可能に変更 |
+| 🔲 | 高 | **セットアップ〜モノマー前処理の動作確認** |
 | 🔲 | 高 | `run.py` にスタッキングステップ追加 |
 | 🔲 | 中 | スタッキング動作確認（isTest → 実計算） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
+
+### セットアップ〜モノマー前処理 動作確認チェックリスト
+
+Tab 0 で生成したファイルとコマンドを使って、以下を順に確認する。
+
+**準備（ローカル）**
+- [ ] Tab 0 でモノマー名・対称性・HPC設定を入力
+- [ ] `run_config.yaml` をダウンロード（`data_dir` / `monomer_xyz` が正しいパスか確認）
+- [ ] `auto_opt.yaml` をダウンロード（Amber パス・キュー設定が正しいか確認）
+
+**転送（ローカルで実行）**
+- [ ] `scp <local_xyz> user@hpc:<workdir>/data/monomer/<MON>_raw.xyz`
+- [ ] `scp run_config.yaml user@hpc:<workdir>/`
+- [ ] `scp auto_opt.yaml user@hpc:~/.auto_opt.yaml`（初回のみ）
+
+**実行（スパコンで実行）**
+- [ ] `python -m auto_opt.run --config run_config.yaml --start-from monomer --stop-after vdw`
+
+**確認（スパコン上）**
+- [ ] `<workdir>/data/monomer/<MON>.xyz` が生成されている（PCA 整列済み）
+- [ ] `<workdir>/data/monomer/<MON>.csv` が生成されている
+- [ ] `<workdir>/data/monomer/<MON>.mol2` が生成されている（RESP 電荷付き）
+- [ ] `<workdir>/data/amber_ref/<MON>_gaff2.out` が生成されている
+- [ ] VdW スウィープが走り `<workdir>/runs/<MON>_<sym>/vdW_r_contact_<MON>.csv` が生成されている
+- [ ] `step1_init_params.csv` が生成されている
+
+**確認（ローカル）**
+- [ ] `step1_init_params.csv` を scp でダウンロードし Tab 1 (VdW スキャン) で読み込める
+- [ ] a×b ヒートマップが表示され、3D 構造が表示できる
