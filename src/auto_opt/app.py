@@ -68,6 +68,7 @@ def _render_heatmap(
     val_col: str,
     val_label: str,
     *,
+    current_pt: dict | None = None,
     sel_pts: list[dict] | None = None,
     confirmed_pts: list[dict] | None = None,
     chart_key: str,
@@ -99,6 +100,16 @@ def _render_heatmap(
         hovertemplate=f"{x_col}=%{{x}}<br>{y_col}=%{{y}}<br>%{{text}}<extra></extra>",
         showlegend=False,
     ))
+
+    # 現在の 3D 表示点（白丸）
+    if current_pt:
+        fig.add_trace(go.Scatter(
+            x=[current_pt[x_col]], y=[current_pt[y_col]],
+            mode="markers",
+            marker=dict(symbol="circle-open", size=20, color="white",
+                        line=dict(width=3, color="white")),
+            showlegend=False, hoverinfo="skip",
+        ))
 
     # 選択中（黄色）
     if sel_pts:
@@ -400,21 +411,18 @@ with tab_layer:
                     sx = st.session_state.layer_sel.get(x_col)
                     sy = st.session_state.layer_sel.get(y_col)
                     if sx is not None and sy is not None:
-                        current_pt = [{x_col: sx, y_col: sy}]
+                        current_pt = {x_col: sx, y_col: sy}
 
                 event = _render_heatmap(
                     df_fixed, df_fixed,
                     x_col, y_col, "E", "E (kcal/mol)",
+                    current_pt=current_pt,
                     sel_pts=(
                         st.session_state.pending_stacking if select_mode else None
                     ),
                     confirmed_pts=st.session_state.stacking_list or None,
                     chart_key="layer_heatmap",
                 )
-
-                # 白丸（現在の 3D 表示点）を追加描画
-                if current_pt and not select_mode:
-                    pass  # handled via session state in 3D col
 
                 if event and event.selection and event.selection.points:
                     pt = event.selection.points[0]
