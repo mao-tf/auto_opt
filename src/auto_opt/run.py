@@ -35,17 +35,31 @@ import yaml
 # 実行ステップの順序
 STEPS = ['monomer', 'vdw', 'amber', 'collect']
 
-# デフォルト monomer ディレクトリ（パッケージ相対）
-_MONOMER_DIR = Path(__file__).resolve().parents[2] / "data" / "monomer"
+# デフォルト data ディレクトリ（パッケージ相対・後方互換用）
+_DATA_DIR    = Path(__file__).resolve().parents[2] / "data"
+_MONOMER_DIR = _DATA_DIR / "monomer"
+
+
+def _resolve_data_dirs(config: dict) -> tuple[Path, Path]:
+    """config から monomer_dir と amber_ref_dir を解決する。
+    data_dir が指定されていればそこを使い、なければパッケージ付属の data/ にフォールバック。
+    """
+    if 'data_dir' in config:
+        data = Path(config['data_dir'])
+    else:
+        data = _DATA_DIR
+    return data / 'monomer', data / 'amber_ref'
 
 
 def run_monomer_step(config: dict, dry_run: bool = False) -> None:
     """モノマー準備: opt → RESP → amber_ref を連続実行する。"""
-    from auto_opt.monomer.prep_monomer import run_all, MONO_DIR, AMBER_REF_DIR
+    from auto_opt.monomer.prep_monomer import run_all
 
-    mon  = config['monomer']
-    mol2 = MONO_DIR / f'{mon}.mol2'
-    ref  = AMBER_REF_DIR / f'{mon}_gaff2.out'
+    mon = config['monomer']
+    mono_dir, amber_ref_dir = _resolve_data_dirs(config)
+
+    mol2 = mono_dir      / f'{mon}.mol2'
+    ref  = amber_ref_dir / f'{mon}_gaff2.out'
 
     if mol2.exists() and ref.exists():
         print(f'[monomer] {mol2.name} と {ref.name} が既に存在します。スキップします。')
@@ -54,7 +68,7 @@ def run_monomer_step(config: dict, dry_run: bool = False) -> None:
     if 'monomer_xyz' not in config:
         raise SystemExit(
             f'[monomer] run_config.yaml に monomer_xyz が必要です。\n'
-            f'  monomer_xyz: data/monomer/{mon}_raw.xyz'
+            f'  monomer_xyz: {mono_dir}/{mon}_raw.xyz'
         )
 
     xyz_path = Path(config['monomer_xyz'])
@@ -62,7 +76,7 @@ def run_monomer_step(config: dict, dry_run: bool = False) -> None:
         raise SystemExit(f'[monomer] XYZ ファイルが見つかりません: {xyz_path}')
 
     if dry_run:
-        print(f'[dry-run] prep_monomer.run_all({mon}, {xyz_path})')
+        print(f'[dry-run] prep_monomer.run_all({mon}, {xyz_path}, mono_dir={mono_dir})')
         return
 
     run_all(
@@ -73,6 +87,8 @@ def run_monomer_step(config: dict, dry_run: bool = False) -> None:
         mult=config.get('mult', 1),
         opt_level=config.get('opt_level', 'B3LYP/6-31G(d)'),
         esp_level=config.get('esp_level', 'HF/6-31G(d)'),
+        mono_dir=mono_dir,
+        amber_ref_dir=amber_ref_dir,
     )
 
 
@@ -135,7 +151,8 @@ def run_pipeline(
     if symmetry not in ('glide', 'screw'):
         raise ValueError(f"symmetry は 'glide' または 'screw' を指定してください。got: {symmetry}")
 
-    monomer_path = config.get('monomer_path', str(_MONOMER_DIR / f"{monomer}.xyz"))
+    mono_dir, _ = _resolve_data_dirs(config)
+    monomer_path = config.get('monomer_path', str(mono_dir / f"{monomer}.xyz"))
 
     start_i = STEPS.index(start_from)
     stop_i  = STEPS.index(stop_after)

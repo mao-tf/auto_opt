@@ -347,6 +347,7 @@ with tab_setup:
         f"monomer: {monomer_name}\n"
         f"symmetry: {setup_sym}\n"
         f"auto_dir: {_auto_dir_out}\n"
+        f"data_dir: {_hpc_workdir_out}/data\n"
         f"monomer_xyz: {_mono_xyz_hpc}\n\n"
         f"charge: {int(setup_charge)}\n"
         f"mult: {int(setup_mult)}\n\n"

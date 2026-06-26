@@ -380,18 +380,23 @@ def run_all(
     esp_level: str = 'HF/6-31G(d)',
     charge: int = 0,
     mult: int = 1,
+    mono_dir: Optional[Path] = None,
+    amber_ref_dir: Optional[Path] = None,
 ) -> None:
     """opt → resp → amber_ref を連続実行する。run.py から直接呼べる。"""
-    MONO_DIR.mkdir(parents=True, exist_ok=True)
-    AMBER_REF_DIR.mkdir(parents=True, exist_ok=True)
+    _mono_dir      = Path(mono_dir)      if mono_dir      else MONO_DIR
+    _amber_ref_dir = Path(amber_ref_dir) if amber_ref_dir else AMBER_REF_DIR
+
+    _mono_dir.mkdir(parents=True, exist_ok=True)
+    _amber_ref_dir.mkdir(parents=True, exist_ok=True)
 
     _q, _n = _gauss_queue_nproc()
     queue    = queue    or _q
     nproc    = nproc    or _n
-    out_mol2 = out_mol2 or (MONO_DIR / f'{monomer}.mol2')
-    out_csv  = out_csv  or (MONO_DIR / f'{monomer}.csv')
+    out_mol2 = out_mol2 or (_mono_dir / f'{monomer}.mol2')
+    out_csv  = out_csv  or (_mono_dir / f'{monomer}.csv')
 
-    work = MONO_DIR
+    work = _mono_dir
     # --- opt ---
     inp_opt = work / f'{monomer}_opt.inp'
     log_opt = work / f'{monomer}_opt.log'
@@ -433,7 +438,7 @@ def run_all(
         base2 = f'{monomer}_gaff2'
         write_tleap_and_run(out_mol2, wd / base2, frcmods=[])
         tmp_out    = run_sander_energy(wd, base2)
-        single_out = AMBER_REF_DIR / f'{monomer}_gaff2.out'
+        single_out = _amber_ref_dir / f'{monomer}_gaff2.out'
         single_out.write_text(tmp_out.read_text(), encoding='utf-8')
         print(f'[amber_ref] wrote {single_out}')
 
