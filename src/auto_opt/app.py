@@ -116,9 +116,8 @@ with col_map:
     n_sel = len(st.session_state.heatmap_selection)
     st.subheader(f"エネルギーマップ ({x_col} vs {y_col})")
     st.caption(
-        "クリック: 3D 表示を更新 | "
-        "ツールバーの□でドラッグ選択 → 複数点を一括追加 | "
-        f"現在 **{n_sel}** 点選択中"
+        "クリック: 3D 表示を更新 & スタッキング候補に追加/解除 | "
+        f"現在 **{n_sel}** 点選択中（黄色丸）"
     )
 
     # ベース: ヒートマップ or 空の図
@@ -181,25 +180,32 @@ with col_map:
         on_select='rerun', key='heatmap_chart',
     )
 
-    # 選択イベントを処理
+    # 選択イベントを処理（クリックでトグル）
     if event and event.selection and event.selection.points:
-        pts = event.selection.points
-        if len(pts) == 1:
-            # 単一クリック: 3D ビュー更新 + 選択リストを1点に
-            pt = pts[0]
-            if pt.get('x') is not None:
-                st.session_state.sel[x_col] = float(pt['x'])
-            if pt.get('y') is not None:
-                st.session_state.sel[y_col] = float(pt['y'])
-            st.session_state.heatmap_selection = [
-                {x_col: float(pt['x']), y_col: float(pt['y'])}
-            ]
-        else:
-            # 複数選択（ドラッグ選択）: 選択リストを更新、3D ビューは変えない
-            st.session_state.heatmap_selection = [
-                {x_col: float(p['x']), y_col: float(p['y'])}
-                for p in pts if p.get('x') is not None and p.get('y') is not None
-            ]
+        pt = event.selection.points[0]
+        cx = pt.get('x')
+        cy = pt.get('y')
+        if cx is not None:
+            st.session_state.sel[x_col] = float(cx)
+        if cy is not None:
+            st.session_state.sel[y_col] = float(cy)
+
+        if cx is not None and cy is not None:
+            cx, cy = float(cx), float(cy)
+            already = any(
+                np.isclose(p[x_col], cx, atol=1e-5) and np.isclose(p[y_col], cy, atol=1e-5)
+                for p in st.session_state.heatmap_selection
+            )
+            if already:
+                # 2度目のクリック → 選択解除
+                st.session_state.heatmap_selection = [
+                    p for p in st.session_state.heatmap_selection
+                    if not (np.isclose(p[x_col], cx, atol=1e-5)
+                            and np.isclose(p[y_col], cy, atol=1e-5))
+                ]
+            else:
+                # 初回クリック → 追加
+                st.session_state.heatmap_selection.append({x_col: cx, y_col: cy})
         st.rerun()
 
 # ──────────────────────────────────────────────
