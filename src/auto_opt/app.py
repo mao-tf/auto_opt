@@ -357,14 +357,14 @@ with tab_vdw:
                 if isinstance(cfg, dict):
                     n_vdw_pts *= max(1, round((cfg["max"] - cfg["min"]) / cfg["step"]) + 1)
             n_dim  = _N_DIMERS[vdw_sym]
-            # 各VdW初期点で9点探索 + 平均5回×2点の更新 = 19点、各点でn_dimダイマー計算
-            _N_AMBER_PER_INIT = 9 + 5 * 2
+            # 各VdW初期点で9点探索 + 平均5回×4点の更新 = 29点、各点でn_dimダイマー計算
+            _N_AMBER_PER_INIT = 9 + 5 * 4
             wall_s = n_vdw_pts * _N_AMBER_PER_INIT * n_dim * _SEC_PER_CALC / max(n_nodes, 1)
             wall_str = f"{wall_s:.0f} 秒" if wall_s < 60 else f"{wall_s / 60:.1f} 分"
             st.info(
                 f"VdW 初期点数: **{n_vdw_pts}** 点 ｜ "
                 f"Amber 予想時間: **{wall_str}**"
-                f"（初期9点 + 平均5回×2点更新 = {_N_AMBER_PER_INIT}点/初期点 × {n_dim}ダイマー、{n_nodes}ノード並列）"
+                f"（初期9点 + 平均5回×4点更新 = {_N_AMBER_PER_INIT}点/初期点 × {n_dim}ダイマー、{n_nodes}ノード並列）"
             )
 
             # run_config.yaml 生成
