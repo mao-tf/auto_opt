@@ -334,18 +334,22 @@ with tab_vdw:
 
             # glide のみ: theta_c_step と vdw_select
             if vdw_sym == "glide":
-                cg1, cg2 = st.columns(2)
-                theta_c_step = cg1.number_input(
+                theta_c_step = st.number_input(
                     "theta_c_step (VdW 接触角刻み°)", value=5.0, min_value=1.0,
                     key="p_theta_c_step"
                 )
-                vdw_select = cg2.selectbox(
-                    "vdw_select", ["all", "a-stack", "b-stack", "local_min"],
-                    key="p_vdw_select"
+                vdw_select = st.multiselect(
+                    "抽出する構造タイプ (vdw_select)",
+                    ["all", "a-stack", "b-stack", "local_min"],
+                    default=["a-stack", "b-stack"],
+                    key="p_vdw_select",
                 )
+                if not vdw_select:
+                    st.warning("少なくとも1つ選択してください。")
+                    vdw_select = ["all"]
                 param_cfg["theta_c_step"] = theta_c_step
             else:
-                vdw_select = "all"
+                vdw_select = ["all"]
 
             # 計算点数・予想時間
             n_vdw_pts = 1
@@ -376,12 +380,17 @@ with tab_vdw:
             if vdw_sym == "glide":
                 params_yaml += f"  theta_c_step: {param_cfg['theta_c_step']}\n"
 
+            if len(vdw_select) == 1:
+                vdw_select_yaml = vdw_select[0]
+            else:
+                vdw_select_yaml = "\n" + "".join(f"  - {v}\n" for v in vdw_select)
+
             run_config_yaml = (
                 f"monomer: {monomer_name}\n"
                 f"symmetry: {vdw_sym}\n"
                 f"auto_dir: {auto_dir_out}\n\n"
                 f"parameters:\n{params_yaml}\n"
-                f"vdw_select: {vdw_select}\n\n"
+                f"vdw_select: {vdw_select_yaml}\n"
                 f"amber:\n"
                 f"  num_nodes: {int(n_nodes)}\n"
             )

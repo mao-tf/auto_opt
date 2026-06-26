@@ -177,24 +177,26 @@ def run_pipeline(
             print("-" * 60)
             vdw_csv    = str(Path(auto_dir) / f"vdW_r_contact_{monomer}.csv")
             init_csv   = str(Path(auto_dir) / "step1_init_params.csv")
-            vdw_select = config.get('vdw_select', 'all')
+            raw_select = config.get('vdw_select', 'all')
+            vdw_select = [raw_select] if isinstance(raw_select, str) else list(raw_select)
             _run([
                 'auto_opt.vdw.extract_init_phi',
                 '--vdw-csv', vdw_csv,
                 '--out', init_csv,
-                '--select', vdw_select,
+                '--select', *vdw_select,
             ], dry_run=dry_run)
 
         else:  # screw
             beta_args  = _range_args(params, 'beta')
-            vdw_select = config.get('vdw_select', 'all')
+            raw_select = config.get('vdw_select', 'all')
+            vdw_select = [raw_select] if isinstance(raw_select, str) else list(raw_select)
             _run([
                 'auto_opt.vdw.sweep_screw_phi',
                 '--monomer-path', monomer_path,
                 '--out-dir', auto_dir,
                 *common,
                 *beta_args,
-                '--select', vdw_select,
+                '--select', *vdw_select,
             ], dry_run=dry_run)
 
     # ── Step 3: Amber 最適化 ─────────────────────────────────────────
