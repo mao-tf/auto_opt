@@ -349,9 +349,6 @@ with tab_layer:
         y_opts = [c for c in axis_candidates if c != x_col]
         y_col  = c2.selectbox("Y 軸", y_opts, index=0, key="layer_y")
 
-        c3, c4 = st.columns(2)
-        scan_axis = c3.selectbox("自動選択の軸", axis_candidates, key="scan_axis_sel")
-
         fix_cols = [c for c in axis_candidates if c not in (x_col, y_col)]
         fix_vals: dict[str, float] = {}
         if fix_cols:
@@ -541,6 +538,10 @@ with tab_layer:
             # ─── スタッキング候補リスト ───────────────────
             st.divider()
             st.subheader("スタッキング候補リスト")
+            scan_axis = st.selectbox(
+                "自動選択の軸（各軸の最安定構造を自動追加するときに使用）",
+                axis_candidates, key="scan_axis_sel",
+            )
 
             if st.button(f"各 {scan_axis} の最安定構造を自動追加", key="btn_auto_select"):
                 existing_keys = {
