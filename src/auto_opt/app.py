@@ -1031,10 +1031,26 @@ with tab_param:
     st.subheader("② 各変数のアニメーション")
     st.caption("1変数だけを動かしたときの構造変化を自動再生します。")
 
+    def _center_xyz(xyz_str: str) -> str:
+        """XYZ フレームの重心を原点に移動する。全フレームを中心揃えするために使用。"""
+        lines = xyz_str.rstrip('\n').split('\n')
+        n = int(lines[0])
+        coords, syms = [], []
+        for line in lines[2:2 + n]:
+            parts = line.split()
+            syms.append(parts[0])
+            coords.append([float(parts[1]), float(parts[2]), float(parts[3])])
+        cx, cy, cz = np.mean(coords, axis=0)
+        body = '\n'.join(
+            f"{s} {c[0]-cx:.6f} {c[1]-cy:.6f} {c[2]-cz:.6f}"
+            for s, c in zip(syms, coords)
+        )
+        return f"{lines[0]}\n{lines[1]}\n{body}\n"
+
     def _make_anim(var: str, values, base: dict, sym: str,
                    width: int = 340, height: int = 300) -> None:
         """py3Dmol アニメーションを Streamlit に埋め込む。
-        addModelsAsFrames で全フレームを一括登録することで重複表示を防ぐ。
+        各フレームを重心中心揃えしてから addModelsAsFrames で一括登録する。
         """
         if mol_style == "Space fill":
             _style = {"sphere": {"scale": 1.0}}
@@ -1047,7 +1063,8 @@ with tab_param:
             row_tmp = row_tmp.copy()
             row_tmp[var] = val
             try:
-                frames.append(make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir))
+                xyz = make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir)
+                frames.append(_center_xyz(xyz))
             except Exception:
                 pass
 
