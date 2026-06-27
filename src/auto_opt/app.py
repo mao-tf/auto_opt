@@ -154,8 +154,8 @@ def _render_heatmap(
 # ══════════════════════════════════════════════════════════
 #  タブ定義
 # ══════════════════════════════════════════════════════════
-tab_setup, tab_vdw, tab_layer, tab_stack = st.tabs(
-    ["セットアップ", "VdW スキャン", "層内最適化", "スタッキング結果"]
+tab_setup, tab_vdw, tab_layer, tab_stack, tab_param = st.tabs(
+    ["セットアップ", "VdW スキャン", "層内最適化", "スタッキング結果", "変数説明"]
 )
 
 
@@ -961,3 +961,111 @@ with tab_stack:
             mime="text/csv",
             key="dl_stacking_results2",
         )
+
+# ══════════════════════════════════════════════════════════
+#  Tab 4: 変数説明
+# ══════════════════════════════════════════════════════════
+with tab_param:
+    st.markdown("""
+各変数が分子の配置にどう影響するかを確認できます。
+サイドバーで **モノマー名** と **対称性** を設定してから使用してください。
+""")
+
+    # 対称性選択（サイドバーにない場合のフォールバック）
+    param_sym = st.radio("対称性", ["glide", "screw"], horizontal=True, key="param_sym")
+
+    # ─── 変数の説明テキスト ────────────────────────────────
+    VAR_DESC = {
+        "alpha": ("alpha (°)", "分子の z 軸まわりの回転角。結晶面内での分子の向き（ヘリングボーン角）を決める。"),
+        "phi":   ("phi (°)",   "分子の長軸まわりの傾き角。分子が前後にどれだけ傾いているかを表す。"),
+        "z":     ("z (Å)",     "b 軸方向の隣分子との高さオフセット。glide 対称では隣分子が 2z だけずれる。"),
+        "beta":  ("beta (°)",  "screw 対称のみ。x 軸まわりの追加傾き。screw 軸による非対称なねじれを表す。"),
+    }
+
+    # ─── ① インタラクティブスライダー ──────────────────────
+    st.subheader("① インタラクティブ確認")
+    st.caption("スライダーを動かすと右の 3D ビューがリアルタイムで更新されます。")
+
+    col_sliders, col_3d_param = st.columns([1, 1])
+
+    with col_sliders:
+        p_alpha = st.slider("alpha (°)",  0.0,  90.0, 25.0, 5.0,  key="p_alpha")
+        st.caption(VAR_DESC["alpha"][1])
+        p_phi   = st.slider("phi (°)",  -15.0,  15.0,  0.0, 1.0,  key="p_phi")
+        st.caption(VAR_DESC["phi"][1])
+        p_z     = st.slider("z (Å)",    -2.0,   2.0,   0.0, 0.1,  key="p_z")
+        st.caption(VAR_DESC["z"][1])
+        if param_sym == "screw":
+            p_beta = st.slider("beta (°)", -20.0, 20.0,  0.0, 1.0, key="p_beta")
+            st.caption(VAR_DESC["beta"][1])
+        else:
+            p_beta = 0.0
+
+        st.markdown("---")
+        st.caption("a / b は VdW 接触距離（固定値）")
+        p_a = st.number_input("a (Å)", value=6.0, step=0.1, key="p_a")
+        p_b = st.number_input("b (Å)", value=8.0, step=0.1, key="p_b")
+
+    with col_3d_param:
+        _row_param = pd.Series({
+            "alpha": p_alpha, "phi": p_phi, "z": p_z,
+            "a": p_a, "b": p_b,
+            "bt1": p_b / 2, "bt2": p_b / 2,
+            **({"beta": p_beta} if param_sym == "screw" else {}),
+        })
+        try:
+            _xyz_param = make_cluster_xyz(_row_param, monomer_name, param_sym, monomer_dir)
+            _view_param = py3Dmol.view(width=460, height=400)
+            _view_param.addModel(_xyz_param, "xyz")
+            _view_param.setStyle({"stick": {"radius": 0.15}, "sphere": {"radius": 0.3}})
+            _view_param.setProjection("orthographic")
+            _view_param.zoomTo()
+            st.components.v1.html(_view_param._make_html(), height=420)
+        except Exception as e:
+            st.error(f"3D 表示エラー: {e}")
+
+    # ─── ② アニメーション（各変数の変化を自動再生） ─────────
+    st.subheader("② 各変数のアニメーション")
+    st.caption("1変数だけを動かしたときの構造変化を自動再生します。")
+
+    def _make_anim(var: str, values, base: dict, sym: str,
+                   width: int = 340, height: int = 300) -> None:
+        """py3Dmol multi-model アニメーションを Streamlit に埋め込む。"""
+        view = py3Dmol.view(width=width, height=height)
+        row_tmp = pd.Series(base)
+        for val in values:
+            row_tmp = row_tmp.copy()
+            row_tmp[var] = val
+            try:
+                xyz = make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir)
+                view.addModel(xyz, "xyz")
+            except Exception:
+                pass
+        view.animate({"loop": "forward", "interval": 150, "reps": 0})
+        view.setStyle({}, {"stick": {"radius": 0.15}, "sphere": {"radius": 0.25}})
+        view.setProjection("orthographic")
+        view.zoomTo()
+        st.components.v1.html(view._make_html(), height=height + 20)
+
+    _base = {
+        "alpha": 25.0, "phi": 0.0, "z": 0.0,
+        "a": p_a, "b": p_b,
+        "bt1": p_b / 2, "bt2": p_b / 2,
+        "beta": 0.0,
+    }
+
+    _anim_vars = [
+        ("alpha", np.linspace(0,   90,  19)),
+        ("phi",   np.linspace(-15, 15,  19)),
+        ("z",     np.linspace(-1.5, 1.5, 19)),
+    ]
+    if param_sym == "screw":
+        _anim_vars.append(("beta", np.linspace(-20, 20, 19)))
+
+    _anim_cols = st.columns(len(_anim_vars))
+    for col_ui, (var, vals) in zip(_anim_cols, _anim_vars):
+        with col_ui:
+            label, desc = VAR_DESC[var]
+            st.markdown(f"**{label}**")
+            st.caption(desc)
+            _make_anim(var, vals, _base, param_sym)
