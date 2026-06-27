@@ -169,9 +169,13 @@ python -m auto_opt.amber.job_eval_grid \
 
 ### 可視化（app.py / Streamlit）
 
-```
-streamlit run src/auto_opt/app.py
-```
+**Streamlit について**:
+Python だけでブラウザ UI を作れるライブラリ。HTML/CSS/JavaScript を書かずに済む。
+`streamlit run src/auto_opt/app.py` で起動する。ローカル Mac 上で動かす想定。
+
+HTML/JavaScript（React 等）の方が UI の自由度・レスポンスは高いが、開発コストが大きく
+研究者が Python のみで保守できなくなる。研究ツールとして Streamlit で十分と判断。
+（将来的に UI を凝りたい場合は移行を検討する。）
 
 4タブ構成。
 
@@ -281,7 +285,9 @@ src/auto_opt/
 │   ├── job_phi.py
 │   ├── make_io_gene_screw_phi.py
 │   ├── driver_screw_phi.py
-│   └── job_screw_phi.py
+│   ├── job_screw_phi.py
+│   ├── eval_vdw_grid.py          ← VdW グリッド全点 力場1点評価ドライバー
+│   └── job_eval_grid.py          ← 同 SGE ジョブ投入スクリプト
 ├── stacking/
 │   ├── sweep_stacking_vdw.py
 │   ├── make_io_stacking.py       ← glide ダイマーペア生成
