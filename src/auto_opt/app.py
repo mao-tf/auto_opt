@@ -1017,7 +1017,10 @@ with tab_param:
             _xyz_param = make_cluster_xyz(_row_param, monomer_name, param_sym, monomer_dir)
             _view_param = py3Dmol.view(width=460, height=400)
             _view_param.addModel(_xyz_param, "xyz")
-            _view_param.setStyle({"stick": {"radius": 0.15}, "sphere": {"radius": 0.3}})
+            if mol_style == "Space fill":
+                _view_param.setStyle({"sphere": {"scale": 1.0}})
+            else:
+                _view_param.setStyle({"stick": {"radius": 0.15}, "sphere": {"radius": 0.3}})
             _view_param.setProjection("orthographic")
             _view_param.zoomTo()
             st.components.v1.html(_view_param._make_html(), height=420)
@@ -1030,24 +1033,33 @@ with tab_param:
 
     def _make_anim(var: str, values, base: dict, sym: str,
                    width: int = 340, height: int = 300) -> None:
-        """py3Dmol multi-model アニメーションを Streamlit に埋め込む。"""
+        """py3Dmol アニメーションを Streamlit に埋め込む。
+        addModelsAsFrames で全フレームを一括登録することで重複表示を防ぐ。
+        """
         if mol_style == "Space fill":
             _style = {"sphere": {"scale": 1.0}}
         else:
             _style = {"stick": {"radius": 0.15}, "sphere": {"radius": 0.25}}
 
-        view = py3Dmol.view(width=width, height=height)
+        frames = []
         row_tmp = pd.Series(base)
         for val in values:
             row_tmp = row_tmp.copy()
             row_tmp[var] = val
             try:
-                xyz = make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir)
-                view.addModel(xyz, "xyz")
-                view.setStyle({}, _style)   # 各モデルにスタイルを適用
+                frames.append(make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir))
             except Exception:
                 pass
+
+        if not frames:
+            st.warning("フレームを生成できませんでした。モノマー名とディレクトリを確認してください。")
+            return
+
+        combined_xyz = "".join(frames)
+        view = py3Dmol.view(width=width, height=height)
+        view.addModelsAsFrames(combined_xyz, "xyz")
         view.animate({"loop": "forward", "interval": 150, "reps": 0})
+        view.setStyle({}, _style)
         view.setProjection("orthographic")
         view.zoomTo()
         st.components.v1.html(view._make_html(), height=height + 20)
