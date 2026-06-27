@@ -219,6 +219,15 @@ HTML/JavaScript（React 等）の方が UI の自由度・レスポンスは高�
 |------|------|
 | 結果プロット | `stacking_results.csv` を読み込み E_layer/E_stack/E_total を1Dプロット |
 
+**Tab 4: 変数説明**（お試し機能、v0.2.0 で戻せる）
+
+| 機能 | 説明 |
+|------|------|
+| インタラクティブ確認 | alpha/phi/z/beta のスライダーを動かすと 3D ビューがリアルタイム更新 |
+| アニメーション | 1変数だけをスイープしたフレームを py3Dmol で自動再生（各変数ごとに独立） |
+| screw 対応 | 対称性を screw にすると beta スライダー・アニメーションが追加される |
+| a/b 設定 | VdW 接触距離を手動入力（scan CSV 不要で動作） |
+
 **XYZ ファイル名**: `{モノマー}_{symmetry}_alpha{val}_phi{val}_z{val}.xyz` 形式（screw は beta も含む）
 
 ---
