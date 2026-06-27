@@ -1109,10 +1109,15 @@ with tab_param:
     if param_sym == "screw":
         _anim_vars.append(("beta", np.linspace(-20, 20, 19)))
 
-    _anim_cols = st.columns(len(_anim_vars))
+    _n_panels  = len(_anim_vars)
+    _panel_w   = 240 if _n_panels >= 4 else 300
+    _panel_h   = 240 if _n_panels >= 4 else 270
+
+    _anim_cols = st.columns(_n_panels)
     for col_ui, (var, vals) in zip(_anim_cols, _anim_vars):
         with col_ui:
             label, desc = VAR_DESC[var]
             st.markdown(f"**{label}**")
             st.caption(desc)
-            _make_anim(var, vals, _base, param_sym)
+            _make_anim(var, vals, _base, param_sym,
+                       width=_panel_w, height=_panel_h)
