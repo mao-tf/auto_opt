@@ -1031,46 +1031,59 @@ with tab_param:
     st.subheader("② 各変数のアニメーション")
     st.caption("1変数だけを動かしたときの構造変化を自動再生します。")
 
-    def _center_xyz(xyz_str: str) -> str:
-        """XYZ フレームの重心を原点に移動する。全フレームを中心揃えするために使用。"""
+    def _parse_xyz(xyz_str: str):
+        """XYZ 文字列から (syms, coords) を返す。"""
         lines = xyz_str.rstrip('\n').split('\n')
         n = int(lines[0])
-        coords, syms = [], []
+        syms, coords = [], []
         for line in lines[2:2 + n]:
             parts = line.split()
             syms.append(parts[0])
             coords.append([float(parts[1]), float(parts[2]), float(parts[3])])
-        cx, cy, cz = np.mean(coords, axis=0)
+        return lines[0], lines[1], syms, np.array(coords)
+
+    def _shift_xyz(n_line, comment, syms, coords, offset) -> str:
+        """座標を offset だけ平行移動した XYZ 文字列を返す。"""
+        shifted = coords - offset
         body = '\n'.join(
-            f"{s} {c[0]-cx:.6f} {c[1]-cy:.6f} {c[2]-cz:.6f}"
-            for s, c in zip(syms, coords)
+            f"{s} {c[0]:.6f} {c[1]:.6f} {c[2]:.6f}"
+            for s, c in zip(syms, shifted)
         )
-        return f"{lines[0]}\n{lines[1]}\n{body}\n"
+        return f"{n_line}\n{comment}\n{body}\n"
 
     def _make_anim(var: str, values, base: dict, sym: str,
                    width: int = 340, height: int = 300) -> None:
         """py3Dmol アニメーションを Streamlit に埋め込む。
-        各フレームを重心中心揃えしてから addModelsAsFrames で一括登録する。
+        最初のフレームの重心を全フレームに共通オフセットとして適用することで
+        フレーム間で分子が中心に固定されたまま変化を表示する。
         """
         if mol_style == "Space fill":
             _style = {"sphere": {"scale": 1.0}}
         else:
             _style = {"stick": {"radius": 0.15}, "sphere": {"radius": 0.25}}
 
-        frames = []
+        raw_frames = []
         row_tmp = pd.Series(base)
         for val in values:
             row_tmp = row_tmp.copy()
             row_tmp[var] = val
             try:
-                xyz = make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir)
-                frames.append(_center_xyz(xyz))
+                raw_frames.append(make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir))
             except Exception:
                 pass
 
-        if not frames:
+        if not raw_frames:
             st.warning("フレームを生成できませんでした。モノマー名とディレクトリを確認してください。")
             return
+
+        # 最初のフレームの重心を全フレーム共通のオフセットとして使用
+        n_line, comment0, syms0, coords0 = _parse_xyz(raw_frames[0])
+        offset = coords0.mean(axis=0)
+
+        frames = []
+        for xyz_str in raw_frames:
+            n_line, comment, syms, coords = _parse_xyz(xyz_str)
+            frames.append(_shift_xyz(n_line, comment, syms, coords, offset))
 
         combined_xyz = "".join(frames)
         view = py3Dmol.view(width=width, height=height)
