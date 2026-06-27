@@ -1031,6 +1031,11 @@ with tab_param:
     def _make_anim(var: str, values, base: dict, sym: str,
                    width: int = 340, height: int = 300) -> None:
         """py3Dmol multi-model アニメーションを Streamlit に埋め込む。"""
+        if mol_style == "Space fill":
+            _style = {"sphere": {"scale": 1.0}}
+        else:
+            _style = {"stick": {"radius": 0.15}, "sphere": {"radius": 0.25}}
+
         view = py3Dmol.view(width=width, height=height)
         row_tmp = pd.Series(base)
         for val in values:
@@ -1039,10 +1044,10 @@ with tab_param:
             try:
                 xyz = make_cluster_xyz(row_tmp, monomer_name, sym, monomer_dir)
                 view.addModel(xyz, "xyz")
+                view.setStyle({}, _style)   # 各モデルにスタイルを適用
             except Exception:
                 pass
         view.animate({"loop": "forward", "interval": 150, "reps": 0})
-        view.setStyle({}, {"stick": {"radius": 0.15}, "sphere": {"radius": 0.25}})
         view.setProjection("orthographic")
         view.zoomTo()
         st.components.v1.html(view._make_html(), height=height + 20)
