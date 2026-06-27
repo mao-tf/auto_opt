@@ -445,7 +445,15 @@ with tab_vdw:
         if vdw_fixed.empty:
             st.warning("固定パラメータに合うデータがありません。")
         else:
-            val_col_vdw = "a*b" if "a*b" in vdw_fixed.columns else vdw_axes[0]
+            if "E" in vdw_fixed.columns and vdw_fixed["E"].notna().any():
+                val_col_vdw  = "E"
+                val_label_vdw = "E (kcal/mol)"
+            elif "a*b" in vdw_fixed.columns:
+                val_col_vdw  = "a*b"
+                val_label_vdw = "a×b (Å²)"
+            else:
+                val_col_vdw  = vdw_axes[0]
+                val_label_vdw = vdw_axes[0]
 
             # session_state
             if "vdw_sel" not in st.session_state:
@@ -469,7 +477,7 @@ with tab_vdw:
 
                 event_v = _render_heatmap(
                     vdw_fixed, vdw_fixed,
-                    vdw_x, vdw_y, val_col_vdw, "a×b (Å²)",
+                    vdw_x, vdw_y, val_col_vdw, val_label_vdw,
                     current_pt=vdw_current_pt,
                     chart_key="vdw_heatmap",
                 )
