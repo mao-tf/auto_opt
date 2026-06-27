@@ -1076,13 +1076,13 @@ with tab_param:
             st.warning("フレームを生成できませんでした。モノマー名とディレクトリを確認してください。")
             return
 
-        # 最初のフレームの重心を全フレーム共通のオフセットとして使用
-        n_line, comment0, syms0, coords0 = _parse_xyz(raw_frames[0])
-        offset = coords0.mean(axis=0)
+        # 全フレームの重心を平均してオフセットとして使用
+        # （対称スイープで各フレームのズレが打ち消し合い中心が安定する）
+        parsed = [_parse_xyz(f) for f in raw_frames]
+        offset = np.mean([coords.mean(axis=0) for _, _, _, coords in parsed], axis=0)
 
         frames = []
-        for xyz_str in raw_frames:
-            n_line, comment, syms, coords = _parse_xyz(xyz_str)
+        for (n_line, comment, syms, coords) in parsed:
             frames.append(_shift_xyz(n_line, comment, syms, coords, offset))
 
         combined_xyz = "".join(frames)
