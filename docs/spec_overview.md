@@ -1,6 +1,6 @@
 # auto_opt システム仕様書
 
-最終更新: 2026-06-26（Tab 0 追加）
+最終更新: 2026-06-27（SSH 連携機能を計画に追加）
 
 ---
 
@@ -126,6 +126,30 @@
 | パラメータ | alpha, beta, phi, z の範囲と刻み |
 | 出力 | `step1_init_params.csv`（a-stack / b-stack 分類付き） |
 
+### Step 1.5: VdW グリッド力場1点評価（オプション）
+
+VdW スウィープは幾何学的な接触距離しか評価しないため 2D マップの精度が低い。
+全グリッド点について **最適化なし（sander maxcyc=0）** の力場エネルギーを計算し、
+Tab 1 の 2D マップをエネルギーで色付けすることで精度を高める。
+
+| 項目 | 内容 |
+|------|------|
+| ジョブ投入 | `amber/job_eval_grid.py` |
+| ドライバー | `amber/eval_vdw_grid.py`（各 eval_split_N/ で実行） |
+| 使用 sander 入力 | `resources/FF_calc.in`（既存、maxcyc=0） |
+| エネルギー式 | glide: `E = 2*E1 + 2*E2 + 4*E3`、screw: `E = 2*E1 + 2*E2 + 2*E3 + 2*E4` |
+| 出力 | `step1_init_params.csv` に `E` カラムを追加 |
+
+**所要時間の目安（glide 540点、6ノード）**: ~10〜15分。VdW スウィープより遅いが、Tab 1 のマップ品質が大幅に向上する。速度が問題な場合は本ステップをスキップして v0.1.0 に戻す（`git checkout v0.1.0`）。
+
+**実行方法**:
+```bash
+python -m auto_opt.amber.job_eval_grid \
+    --auto-dir runs/BTBT_glide \
+    --monomer-name BTBT \
+    --symmetry glide
+```
+
 ---
 
 ### Step 2: 層内 Amber 最適化
@@ -163,6 +187,7 @@ streamlit run src/auto_opt/app.py
 | ~/.auto_opt.yaml 生成 | 入力値から生成、コードブロック表示 + ダウンロード |
 | run_config.yaml 生成 | monomer_xyz パス付きで生成 + ダウンロード |
 | コマンド表示 | scp 転送コマンド（ローカル実行）＋ `python -m auto_opt.run --start-from monomer --stop-after vdw`（スパコン実行） |
+| **[計画] SSH 連携** | Paramiko を使い「ファイル転送」「コマンド実行」「ログ表示」をボタン1つで実行（→ SSH連携機能 参照） |
 
 **Tab 1: VdW スキャン**
 
@@ -305,7 +330,47 @@ amber_tools:
 
 ---
 
-## 6. 今後の作業リスト
+## 6. SSH 連携機能（計画）
+
+現在の Tab 0 はコマンドをテキストで表示するだけだが、Paramiko（Python SSH ライブラリ）を使って UI 上でそのまま実行できるようにする。
+
+### 前提条件
+
+- ユーザーのローカルマシンに `~/.ssh/id_rsa`（または `id_ed25519`）が存在し、HPC にパスワードなしで SSH できること
+- アプリはローカルで `streamlit run` することが前提（クラウドへのデプロイは対象外。秘密鍵をサーバーに置けないため）
+
+### 追加する機能
+
+| 機能 | 説明 |
+|------|------|
+| SSH キーパス入力 | Tab 0 に `~/.ssh/id_rsa` などのパスを入力欄として追加 |
+| ファイル転送ボタン | `run_config.yaml` / `~/.auto_opt.yaml` / `monomer_raw.xyz` を SFTP で HPC に送信 |
+| コマンド実行ボタン | `python -m auto_opt.run ...` を SSH 経由で実行 |
+| ログ表示 | stdout/stderr をリアルタイムで Streamlit の `st.code` に表示 |
+| ファイル取得ボタン | HPC の結果ファイル（`step1_init_params.csv` 等）をローカルにダウンロード |
+
+### 実装方針
+
+```python
+import paramiko
+
+ssh = paramiko.SSHClient()
+ssh.load_system_host_keys()
+ssh.connect(host, username=user, key_filename=key_path)
+
+# ファイル転送
+sftp = ssh.open_sftp()
+sftp.put(local_path, remote_path)
+
+# コマンド実行
+stdin, stdout, stderr = ssh.exec_command(cmd)
+for line in stdout:
+    st.write(line)
+```
+
+---
+
+## 7. 今後の作業リスト
 
 | 状態 | 優先度 | 作業 |
 |------|--------|------|
@@ -321,7 +386,9 @@ amber_tools:
 | 🔲 | 高 | `run.py` にスタッキングステップ追加 |
 | 🔲 | 高 | スタッキング動作確認（isTest → 実計算） |
 | 🔲 | 中 | `--monomer-dir` を amber/stacking 全スクリプトに通す（`data_dir` 対応の完成） |
+| 🔲 | 高 | **VdW グリッド力場1点評価の動作確認**（`job_eval_grid.py` → Tab 1 マップ品質確認） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
+| 🔲 | 低 | SSH 連携機能の実装（Paramiko によるファイル転送・コマンド実行・ログ表示） |
 
 ### セットアップ〜モノマー前処理 動作確認チェックリスト
 
