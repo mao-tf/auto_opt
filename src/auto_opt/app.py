@@ -313,9 +313,6 @@ with tab_setup:
         setup_param_cfg[_axis] = {"min": _pmin, "max": _pmax, "step": _pstep}
 
     if setup_sym == "glide":
-        theta_c_step_setup = st.number_input(
-            "theta_c_step (°)", value=5.0, min_value=1.0, key="setup_theta_c_step"
-        )
         setup_vdw_select = st.multiselect(
             "vdw_select",
             ["all", "a-stack", "b-stack", "local_min"],
@@ -325,7 +322,6 @@ with tab_setup:
         if not setup_vdw_select:
             setup_vdw_select = ["all"]
     else:
-        theta_c_step_setup = 5.0
         setup_vdw_select = ["all"]
 
     setup_n_nodes = st.number_input(
@@ -400,9 +396,6 @@ with tab_setup:
             f"    max: {_cfg['max']}\n"
             f"    step: {_cfg['step']}\n\n"
         )
-    if setup_sym == "glide":
-        _params_yaml += f"  theta_c_step: {theta_c_step_setup}\n"
-
     if len(setup_vdw_select) == 1:
         _vdw_select_yaml = setup_vdw_select[0]
     else:
@@ -637,12 +630,8 @@ with tab_vdw:
                                              key=f"p_{axis}_step")
                 param_cfg[axis] = {"min": p_min, "max": p_max, "step": p_step}
 
-            # glide のみ: theta_c_step と vdw_select
+            # glide のみ: vdw_select
             if vdw_sym == "glide":
-                theta_c_step = st.number_input(
-                    "theta_c_step (VdW 接触角刻み°)", value=5.0, min_value=1.0,
-                    key="p_theta_c_step"
-                )
                 vdw_select = st.multiselect(
                     "抽出する構造タイプ (vdw_select)",
                     ["all", "a-stack", "b-stack", "local_min"],
@@ -652,7 +641,6 @@ with tab_vdw:
                 if not vdw_select:
                     st.warning("少なくとも1つ選択してください。")
                     vdw_select = ["all"]
-                param_cfg["theta_c_step"] = theta_c_step
             else:
                 vdw_select = ["all"]
 
@@ -683,9 +671,6 @@ with tab_vdw:
                     f"    max: {cfg['max']}\n"
                     f"    step: {cfg['step']}\n\n"
                 )
-            if vdw_sym == "glide":
-                params_yaml += f"  theta_c_step: {param_cfg['theta_c_step']}\n"
-
             if len(vdw_select) == 1:
                 vdw_select_yaml = vdw_select[0]
             else:
