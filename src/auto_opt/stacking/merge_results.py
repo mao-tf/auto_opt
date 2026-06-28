@@ -104,7 +104,7 @@ def merge_csvs(auto_dir: str, monomer_name: str | None = None,
     if candidates_csv is not None and candidates_csv.exists():
         merged = _join_layer_energy(merged, candidates_csv)
         if 'E_layer' in merged.columns and 'E_stack' in merged.columns:
-            merged['E_total'] = merged['E_layer'] + merged['E_stack']
+            merged['E_total'] = merged['E_layer'] + 2 * merged['E_stack']
 
     # cy → cz の順で並び替え
     sort_cols = [c for c in ('cy', 'cz', 'phi', 'z', 'beta') if c in merged.columns]
