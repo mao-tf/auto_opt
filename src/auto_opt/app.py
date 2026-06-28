@@ -315,7 +315,7 @@ with tab_setup:
     if setup_sym == "glide":
         setup_vdw_select = st.multiselect(
             "vdw_select",
-            ["all", "a-stack", "b-stack", "local_min"],
+            ["all", "a-stack", "b-stack"],
             default=["a-stack", "b-stack"],
             key="setup_vdw_select",
         )
@@ -634,7 +634,7 @@ with tab_vdw:
             if vdw_sym == "glide":
                 vdw_select = st.multiselect(
                     "抽出する構造タイプ (vdw_select)",
-                    ["all", "a-stack", "b-stack", "local_min"],
+                    ["all", "a-stack", "b-stack"],
                     default=["a-stack", "b-stack"],
                     key="p_vdw_select",
                 )
