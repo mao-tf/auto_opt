@@ -33,6 +33,22 @@ with st.sidebar:
     monomer_name = st.text_input("モノマー名", value="BTBT")
     monomer_dir  = st.text_input("モノマーデータディレクトリ", value=_MONOMER_DIR)
     mol_style    = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
+    st.divider()
+    local_work_dir = st.text_input(
+        "ローカル作業ディレクトリ",
+        placeholder=str(Path.home() / "Working" / "auto_opt" / "runs" / "run_name"),
+        key="local_work_dir",
+    )
+
+
+def _save_file(content: str, path: Path) -> None:
+    """ファイルを書き込み、成功/失敗を st.toast で通知する。"""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        st.toast(f"保存しました: {path}", icon="✅")
+    except Exception as e:
+        st.toast(f"保存失敗: {e}", icon="❌")
 
 # ─── ヘルパー: 3D 表示 ─────────────────────────────────────
 def _xyz_filename(row: pd.Series, sym: str) -> str:
@@ -378,13 +394,8 @@ with tab_setup:
     )
     with st.expander("~/.auto_opt.yaml", expanded=True):
         st.code(_auto_opt_yaml, language="yaml")
-        st.download_button(
-            label="auto_opt.yaml をダウンロード",
-            data=_auto_opt_yaml,
-            file_name="auto_opt.yaml",
-            mime="text/plain",
-            key="dl_auto_opt_yaml",
-        )
+        if st.button("~/.auto_opt.yaml に保存", key="save_auto_opt_yaml"):
+            _save_file(_auto_opt_yaml, Path.home() / ".auto_opt.yaml")
 
     # run_config.yaml
     _params_yaml = ""
@@ -416,31 +427,32 @@ with tab_setup:
     )
     with st.expander("run_config.yaml", expanded=True):
         st.code(_run_config_setup, language="yaml")
-        st.download_button(
-            label="run_config.yaml をダウンロード",
-            data=_run_config_setup,
-            file_name="run_config.yaml",
-            mime="text/plain",
-            key="dl_run_config_setup",
-        )
+        _lwd_setup = Path(local_work_dir) if local_work_dir.strip() else None
+        if _lwd_setup:
+            if st.button("run_config.yaml をローカルに保存", key="save_run_config_setup"):
+                _save_file(_run_config_setup, _lwd_setup / "run_config.yaml")
+        else:
+            st.caption("💡 サイドバーでローカル作業ディレクトリを設定すると直接保存できます")
 
     # コマンド
     st.subheader("コマンド")
     st.caption("1. ローカルで実行 — スパコンへファイル転送")
+    _lwd_str = local_work_dir.strip() or "<ローカル作業ディレクトリ>"
+    _run_config_local = f"{_lwd_str}/run_config.yaml"
     st.code(
         f"# モノマー xyz を転送（ファイル名は {monomer_name}_raw.xyz に変換されます）\n"
         f"scp {_local_xyz_out} \\\n"
         f"    {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz\n\n"
         f"# 設定ファイルを転送\n"
-        f"scp run_config.yaml {_hpc_host_out}:{_hpc_workdir_out}/\n\n"
+        f"scp {_run_config_local} {_hpc_host_out}:{_auto_dir_out}/\n\n"
         f"# 環境設定（初回のみ）\n"
-        f"scp auto_opt.yaml   {_hpc_host_out}:~/.auto_opt.yaml",
+        f"scp ~/.auto_opt.yaml {_hpc_host_out}:~/.auto_opt.yaml",
         language="bash",
     )
     st.caption("2. スパコン上で実行")
     st.code(
         f"cd {_hpc_workdir_out}\n"
-        f"python -m auto_opt.run --config run_config.yaml"
+        f"python -m auto_opt.run --config {_auto_dir_out}/run_config.yaml"
         f" --start-from monomer --stop-after vdw",
         language="bash",
     )
@@ -450,14 +462,24 @@ with tab_setup:
 #  Tab 1: VdW スキャン
 # ══════════════════════════════════════════════════════════
 with tab_vdw:
+    _vdw_local_path = (
+        Path(local_work_dir) / "step1_init_params.csv"
+        if local_work_dir.strip() else None
+    )
+    _vdw_local_exists = _vdw_local_path is not None and _vdw_local_path.exists()
+
+    if _vdw_local_exists:
+        st.caption(f"📂 {_vdw_local_path} から自動読み込み")
     vdw_uploaded = st.file_uploader(
-        "step1_init_params.csv (VdW スキャン出力)", type="csv", key="vdw_csv"
+        "step1_init_params.csv (VdW スキャン出力) — ローカルパスが設定されていれば自動読み込み",
+        type="csv", key="vdw_csv"
     )
 
-    if vdw_uploaded is None:
-        st.info("step1_init_params.csv をアップロードしてください。")
+    vdw_source = vdw_uploaded or (_vdw_local_path if _vdw_local_exists else None)
+    if vdw_source is None:
+        st.info("step1_init_params.csv をアップロードするか、サイドバーでローカル作業ディレクトリを設定してください。")
     else:
-        vdw_df = pd.read_csv(vdw_uploaded)
+        vdw_df = pd.read_csv(vdw_source)
         vdw_sym = "screw" if "beta" in vdw_df.columns else "glide"
 
         # a*b 列を追加
@@ -686,31 +708,43 @@ with tab_vdw:
                 f"  num_nodes: {int(n_nodes)}\n"
             )
 
-            st.download_button(
-                label="run_config.yaml をダウンロード",
-                data=run_config_yaml,
-                file_name="run_config.yaml",
-                mime="text/plain",
-                key="dl_run_config",
-            )
-
-            st.code(
-                f"python -m auto_opt.run --config run_config.yaml",
-                language="bash",
-            )
+            st.code(run_config_yaml, language="yaml")
+            _lwd_vdw = Path(local_work_dir) if local_work_dir.strip() else None
+            if _lwd_vdw:
+                if st.button("run_config.yaml をローカルに保存", key="save_run_config_vdw"):
+                    _save_file(run_config_yaml, _lwd_vdw / "run_config.yaml")
+                _hpc_host_v = st.session_state.get("setup_hpc_host", "").strip() or "<user@hpc>"
+                st.code(
+                    f"scp {_lwd_vdw}/run_config.yaml {_hpc_host_v}:{auto_dir_out}/\n"
+                    f"ssh {_hpc_host_v} 'cd {auto_dir_out} && "
+                    f"nohup python -m auto_opt.run --config run_config.yaml > run.log 2>&1 &'",
+                    language="bash",
+                )
+            else:
+                st.caption("💡 サイドバーでローカル作業ディレクトリを設定するとSCPコマンドが表示されます")
 
 
 # ══════════════════════════════════════════════════════════
 #  Tab 2: 層内最適化
 # ══════════════════════════════════════════════════════════
 with tab_layer:
-    layer_uploaded = st.file_uploader(
-        "filtered_step1.csv (Amber 最適化結果)", type="csv", key="layer_csv"
+    _layer_local_path = (
+        Path(local_work_dir) / "filtered_step1.csv"
+        if local_work_dir.strip() else None
     )
-    if layer_uploaded is None:
-        st.info("filtered_step1.csv をアップロードしてください。")
+    _layer_local_exists = _layer_local_path is not None and _layer_local_path.exists()
+
+    if _layer_local_exists:
+        st.caption(f"📂 {_layer_local_path} から自動読み込み")
+    layer_uploaded = st.file_uploader(
+        "filtered_step1.csv (Amber 最適化結果) — ローカルパスが設定されていれば自動読み込み",
+        type="csv", key="layer_csv"
+    )
+    layer_source = layer_uploaded or (_layer_local_path if _layer_local_exists else None)
+    if layer_source is None:
+        st.info("filtered_step1.csv をアップロードするか、サイドバーでローカル作業ディレクトリを設定してください。")
     else:
-        df = pd.read_csv(layer_uploaded)
+        df = pd.read_csv(layer_source)
         sym = "screw" if "beta" in df.columns else "glide"
         axis_candidates = ["alpha", "phi", "z"] + (["beta"] if sym == "screw" else [])
         axis_candidates = [c for c in axis_candidates if c in df.columns]
