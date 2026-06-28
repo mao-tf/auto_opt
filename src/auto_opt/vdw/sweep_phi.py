@@ -18,8 +18,8 @@ from auto_opt.utils import Rod, vdw_radius, read_xyz, vdw_R
 def t_shaped_pair(base_axyz, Rx, Rz, z):
     axyz_1, axyz_2 = [], []
     for x, y, zz, sym in base_axyz:
-        rot = np.matmul(np.array([x, y, zz]), Rx)
-        rot = np.matmul(rot, Rz)
+        rot = np.matmul(np.array([x, y, zz]), Rx.T)
+        rot = np.matmul(rot, Rz.T)
         axyz_1.append([ rot[0],  rot[1],  rot[2],     sym])
         axyz_2.append([-rot[0],  rot[1],  rot[2] + z, sym])
     return axyz_1, axyz_2
@@ -27,10 +27,10 @@ def t_shaped_pair(base_axyz, Rx, Rz, z):
 def parallel_pair(base_axyz, Rx, Rz, z):
     axyz_1, axyz_2 = [], []
     for x, y, zz, sym in base_axyz:
-        rot = np.matmul(np.array([x, y, zz]), Rx)
-        rot = np.matmul(rot, Rz)
+        rot = np.matmul(np.array([x, y, zz]), Rx.T)
+        rot = np.matmul(rot, Rz.T)
         axyz_1.append([ rot[0],  rot[1],  rot[2],       sym])
-        axyz_2.append([ rot[0],  rot[1],  rot[2] + 2*z, sym]) # Note: Check if 2*z is intended for your specific model
+        axyz_2.append([ rot[0],  rot[1],  rot[2] + 2*z, sym])
     return axyz_1, axyz_2
 
 

@@ -1,6 +1,6 @@
 # auto_opt システム仕様書
 
-最終更新: 2026-06-28（Tab3 スタッキング結果UI強化・SSH連携機能詳細追加）
+最終更新: 2026-06-28（Tab3 スタッキング結果UI強化・SSH連携機能詳細追加・実行環境柔軟性の設計追加）
 
 ---
 
@@ -12,6 +12,28 @@
 1. **モノマー前処理**（Gaussian DFT 最適化 → RESP 電荷 → GAFF2 パラメータ）
 2. **層内最適化**（VdW スウィープ → Amber 力場最適化 → 局所最小抽出）
 3. **層間最適化**（スタッキング VdW スウィープ → Amber 力場最適化）
+
+### 実行環境の考え方
+
+各ステップはユーザーの環境に応じてローカルまたは HPC で実行できる。
+
+| ステップ | ローカル実行 | HPC 実行 | 備考 |
+|---------|------------|---------|------|
+| VdW スウィープ | ✅ 推奨 | ✅ 可 | 純Python・Amber不要。数分で終わる |
+| Amber 層内最適化 | ✅ 可（Amberあれば） | ✅ 推奨 | 計算量が多く、HPC が現実的 |
+| モノマー前処理 | ❌ Gaussian が必要 | ✅ 推奨 | Gaussian ライセンスは通常 HPC |
+| スタッキング Amber | ✅ 可（Amberあれば） | ✅ 推奨 | 同上 |
+| 結果収集・可視化 | ✅ 常にローカル | — | app.py はローカルで動作 |
+
+想定する典型的な構成例：
+
+**構成A（標準）**: VdW ローカル、Amber/Gaussian → HPC  
+**構成B（フル HPC）**: 全ステップを HPC、可視化のみローカル  
+**構成C（フルローカル）**: Amber と Gaussian をローカルに持つユーザー（稀）
+
+SSH 連携機能（Section 6）では、各ステップをローカル or HPC どちらで実行するかを UI から選択できる設計を目指す。
+
+---
 
 ### 対象とする結晶対称性
 
@@ -361,6 +383,30 @@ amber_tools:
 - ユーザーのローカルマシンに `~/.ssh/id_rsa`（または `id_ed25519`）が存在し、HPC にパスワードなしで SSH できること
 - アプリはローカルで `streamlit run` することが前提（クラウドへのデプロイは対象外。秘密鍵をサーバーに置けないため）
 
+### ステップごとの実行場所の設定
+
+各ステップをローカル or HPC どちらで動かすかをUIから選択できるようにする。
+
+| ステップ | デフォルト実行場所 | 変更可否 |
+|---------|----------------|---------|
+| VdW スウィープ | ローカル | ✅ HPC も選べる |
+| Amber 層内最適化 | HPC | ✅ ローカル Amber があれば選べる |
+| モノマー前処理 | HPC（Gaussian 必須） | ❌ 固定 |
+| スタッキング VdW | ローカル | ✅ HPC も選べる |
+| スタッキング Amber | HPC | ✅ ローカル Amber があれば選べる |
+
+`~/.auto_opt.yaml` にて各ステップの `execution: local | hpc` を設定で切り替える方針：
+
+```yaml
+execution:
+  vdw:      local   # ローカルで実行（デフォルト）
+  amber:    hpc     # HPC で実行（デフォルト）
+  stacking_vdw:   local
+  stacking_amber: hpc
+```
+
+ローカル実行時は `subprocess` で直接呼び出し、HPC 実行時は Paramiko 経由で SSH 実行する。
+
 ### サイドバーに追加する設定項目
 
 | 設定 | 例 |
@@ -377,32 +423,35 @@ amber_tools:
 
 | タブ | 追加機能 |
 |------|---------|
-| Tab 0 | ① `monomer_raw.xyz` を HPC へアップロード ② `run_config.yaml` / `~/.auto_opt.yaml` を HPC へ転送 ③ `python -m auto_opt.run --stop-after vdw` を SSH 実行 |
-| Tab 1 | ① `step1_init_params.csv` をローカル作業ディレクトリに自動ダウンロード ② `python -m auto_opt.run --start-from amber` を SSH 実行 |
-| Tab 2 | ① `stacking_candidates.csv` を HPC へアップロード ② `sweep_stacking_vdw` をローカル実行 → `step1_init_params.csv` を HPC へ転送 ③ `job_stacking.py` を SSH 実行 → qstat ポーリングで進捗表示 ④ 完了後 `merge_results.py` を SSH 実行 ⑤ `stacking_results.csv` をローカルに自動ダウンロード |
+| Tab 0 | ① `monomer_raw.xyz` を HPC へアップロード ② `run_config.yaml` / `~/.auto_opt.yaml` を HPC へ転送 ③ `python -m auto_opt.run --stop-after vdw` を（ローカルor SSH で）実行 |
+| Tab 1 | ① `step1_init_params.csv` をローカル作業ディレクトリに自動ダウンロード ② `python -m auto_opt.run --start-from amber --stop-after amber` を（ローカルorSSH で）実行 |
+| Tab 2 | ① `stacking_candidates.csv` を（ローカルorHPC に）転送 ② `sweep_stacking_vdw` を（ローカルorSSH で）実行 ③ `job_stacking.py` を（ローカルorSSH で）実行 → ジョブ完了までポーリングで進捗表示 ④ 完了後 `merge_results.py` を実行 ⑤ `stacking_results.csv` をローカルに自動ダウンロード |
 | Tab 3 | 結果が自動的に表示される（手動アップロード不要になる） |
 
 ### 実装方針
 
 ```python
-import paramiko
+import paramiko, subprocess
 
-ssh = paramiko.SSHClient()
-ssh.load_system_host_keys()
-ssh.connect(host, username=user, key_filename=key_path)
+def run_remote(cmd, host, user, key_path):
+    ssh = paramiko.SSHClient()
+    ssh.load_system_host_keys()
+    ssh.connect(host, username=user, key_filename=key_path)
+    stdin, stdout, stderr = ssh.exec_command(cmd)
+    for line in stdout:
+        st.write(line)
+
+def run_local(cmd):
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, text=True)
+    for line in proc.stdout:
+        st.write(line)
 
 # ファイル転送（ローカル→HPC）
-sftp = ssh.open_sftp()
 sftp.put(local_path, remote_path)
 
 # ファイル取得（HPC→ローカル作業ディレクトリ）
 local_save = Path(local_work_dir) / Path(remote_path).name
 sftp.get(remote_path, str(local_save))
-
-# コマンド実行・ログ表示
-stdin, stdout, stderr = ssh.exec_command(cmd)
-for line in stdout:
-    st.write(line)
 ```
 
 ### 依存ライブラリ
@@ -433,6 +482,7 @@ pip install paramiko
 | 🔲 | 高 | **VdW グリッド力場1点評価の動作確認**（`job_eval_grid.py` → Tab 1 マップ品質確認） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
 | 🔲 | 中 | **SSH 連携機能の実装**（ローカル作業ディレクトリ指定・ファイル自動授受・HPC コマンド実行・進捗表示） |
+| 🔲 | 中 | **実行環境の柔軟化**（VdW/Amber 各ステップをローカルor HPC から選択。`~/.auto_opt.yaml` に `execution:` セクション追加） |
 | 🔲 | 低 | HPC 可搬性対応（分子科学研究所 PBS/SLURM スケジューラー対応） |
 | 🔲 | 低 | ドキュメント整備（計算化学を知らない材料研究者向け README） |
 

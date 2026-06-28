@@ -69,9 +69,8 @@ def _submit_jobs(auto_dir: Path, monomer_name: str, symmetry: str,
         )
         job_sh = make_job_script(
             job_name=f'eval_{i}',
-            queue_name=qname,
+            queue=qname,
             queue_instance=qi,
-            num_slots=num_nodes,
             cmd=cmd,
         )
         job_path = split_dir / 'job.sh'
