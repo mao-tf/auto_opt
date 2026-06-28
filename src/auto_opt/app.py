@@ -47,50 +47,53 @@ def _xyz_filename(row: pd.Series, sym: str) -> str:
 
 def make_stacking_xyz(row: pd.Series, monomer_name: str, sym: str,
                       monomer_dir: str) -> str:
-    """層クラスター(9分子) + スタッキング分子(1〜2分子) の XYZ を返す。"""
-    alpha = float(row.get('alpha1', row.get('alpha', 0.0)))
-    beta  = float(row.get('beta',  0.0))
-    phi   = float(row.get('phi',   0.0))
-    z     = float(row.get('z',     0.0))
-    a     = float(row.get('a',     0.0))
-    bt1   = float(row.get('bt1',   0.0))
-    bt2   = float(row.get('bt2',   0.0))
-    b     = bt1 + bt2 if bt1 + bt2 > 0 else float(row.get('b', 0.0))
-    cx    = float(row.get('cx',    0.0))
-    cy    = float(row.get('cy',    0.0))
-    cz    = float(row.get('cz',    0.0))
+    """層クラスター(9分子) + スタッキング分子(2分子) の XYZ を返す。"""
+    alpha1 = float(row.get('alpha1', row.get('alpha', 0.0)))
+    alpha2 = float(row.get('alpha2', alpha1))
+    beta   = float(row.get('beta',  0.0))
+    phi    = float(row.get('phi',   0.0))
+    z      = float(row.get('z',     0.0))
+    a      = float(row.get('a',     0.0))
+    bt1    = float(row.get('bt1',   0.0))
+    bt2    = float(row.get('bt2',   0.0))
+    b      = bt1 + bt2 if bt1 + bt2 > 0 else float(row.get('b', 0.0))
+    cx     = float(row.get('cx',    0.0))
+    cy     = float(row.get('cy',    0.0))
+    cz     = float(row.get('cz',    0.0))
 
     syms = _load_symbols(monomer_name, monomer_dir)
 
-    # 層クラスター
+    # 層クラスター（alpha1 で生成）
     if sym == 'screw':
         layer_syms, layer_xyz = _cluster_screw(
-            monomer_name, a, b, bt1, bt2, z, alpha, beta, phi, monomer_dir
+            monomer_name, a, b, bt1, bt2, z, alpha1, beta, phi, monomer_dir
         )
     else:
         layer_syms, layer_xyz = _cluster_glide(
-            monomer_name, a, b, z, alpha, phi, monomer_dir
+            monomer_name, a, b, z, alpha1, phi, monomer_dir
         )
 
-    # スタッキング分子（別層）
+    # スタッキング分子（alpha2 で生成・make_io_stacking と同じ配置）
     stack_syms:  list[str]        = []
     stack_parts: list[np.ndarray] = []
 
     if sym == 'screw':
-        for tx, ty, tz, al_sign in [
-            (cx,          cy,       cz,     alpha),
-            (a/2 + cx,    bt1 + cy, cz + z, -alpha),
+        # c: (cx, cy, cz, +alpha2),  c_: (a/2+cx, bt1+cy, cz+z, -alpha2)
+        for tx, ty, tz, al in [
+            (cx,          cy,       cz,     alpha2),
+            (a/2 + cx,    bt1 + cy, cz + z, -alpha2),
         ]:
-            arr = place_monomer(monomer_name, tx, ty, tz, phi, al_sign, beta,
+            arr = place_monomer(monomer_name, tx, ty, tz, phi, al, beta,
                                 monomer_dir=monomer_dir)
             stack_syms.extend(syms)
             stack_parts.append(arr[:, :3])
     else:
-        for tx, ty, tz, al_sign in [
-            (cx,       cy,      cz,    alpha),
-            (cx,       cy,      cz,   -alpha),
+        # c: (cx, cy, cz, +alpha2),  c_: (cx, cy, cz, -alpha2)
+        for tx, ty, tz, al in [
+            (cx, cy, cz,  alpha2),
+            (cx, cy, cz, -alpha2),
         ]:
-            arr = place_monomer(monomer_name, tx, ty, tz, phi, al_sign,
+            arr = place_monomer(monomer_name, tx, ty, tz, phi, al,
                                 monomer_dir=monomer_dir)
             stack_syms.extend(syms)
             stack_parts.append(arr[:, :3])
