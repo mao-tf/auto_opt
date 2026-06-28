@@ -1086,9 +1086,9 @@ with tab_stack:
                 st.error(f"3D 生成エラー: {e}")
 
         st.download_button(
-            label="スタッキング結果 CSV ダウンロード",
-            data=df_sr2.to_csv(index=False),
-            file_name="stacking_results.csv",
+            label="スタッキングサマリー CSV ダウンロード",
+            data=df_plot_base[show_cols].reset_index(drop=True).to_csv(index=False),
+            file_name=f"{monomer_name}_stacking_summary.csv",
             mime="text/csv",
             key="dl_stacking_results2",
         )
