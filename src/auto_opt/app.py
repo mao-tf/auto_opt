@@ -936,24 +936,58 @@ with tab_stack:
             stack_axes = [df_sr2.columns[0]]
         x_col_s2 = st.selectbox("X 軸", stack_axes, key="stack_x")
 
-        fig_s2 = go.Figure()
-        for col, color, name in [
+        # 固定する軸の選択（X軸以外）
+        fix_axes_s2 = [c for c in stack_axes if c != x_col_s2]
+        fix_vals_s2: dict[str, float] = {}
+        if fix_axes_s2:
+            fix_cols_ui_s2 = st.columns(len(fix_axes_s2))
+            for i, col in enumerate(fix_axes_s2):
+                uniq = sorted(df_sr2[col].dropna().unique())
+                if len(uniq) == 1:
+                    fix_vals_s2[col] = uniq[0]
+                    fix_cols_ui_s2[i].text(f"{col} = {uniq[0]}")
+                else:
+                    fix_vals_s2[col] = fix_cols_ui_s2[i].select_slider(
+                        col, options=uniq, value=uniq[len(uniq)//2], key=f"stack_fix_{col}"
+                    )
+
+        df_s2_fixed = df_sr2.copy()
+        for col, val in fix_vals_s2.items():
+            df_s2_fixed = df_s2_fixed[np.isclose(df_s2_fixed[col], val, atol=1e-5)]
+
+        e_series = [
             ("E_layer", "royalblue", "層内 E_layer"),
             ("E_stack", "tomato",    "層間 E_stack"),
             ("E_total", "seagreen",  "合計 E_total"),
-        ]:
-            if col in df_sr2.columns:
-                fig_s2.add_trace(go.Scatter(
-                    x=df_sr2[x_col_s2], y=df_sr2[col],
-                    mode="lines+markers", name=name,
-                    line=dict(color=color),
-                ))
+            ("E_int",   "tomato",    "層間 E_int"),   # 旧列名フォールバック
+        ]
+
+        fig_s2 = go.Figure()
+        plotted = set()
+        for col, color, label in e_series:
+            if col not in df_sr2.columns or col in plotted:
+                continue
+            df_plot = df_s2_fixed.groupby(x_col_s2)[col].min().reset_index()
+            fig_s2.add_trace(go.Scatter(
+                x=df_plot[x_col_s2], y=df_plot[col],
+                mode="lines+markers", name=label,
+                line=dict(color=color),
+            ))
+            plotted.add(col)
         fig_s2.update_layout(
             xaxis_title=x_col_s2,
             yaxis_title="E (kcal/mol)",
             margin=dict(l=20, r=20, t=30, b=20),
         )
         st.plotly_chart(fig_s2, use_container_width=True)
+
+        best_col = next((c for c in ["E_total", "E_stack", "E_int"] if c in df_s2_fixed.columns), None)
+        if best_col and not df_s2_fixed.empty:
+            best = df_s2_fixed.loc[df_s2_fixed[best_col].idxmin()]
+            st.caption(
+                f"最安定({best_col}): {best[best_col]:.3f} kcal/mol  "
+                f"| cy={best.get('cy','?')}  cz={best.get('cz','?')}"
+            )
         st.download_button(
             label="スタッキング結果 CSV ダウンロード",
             data=df_sr2.to_csv(index=False),
