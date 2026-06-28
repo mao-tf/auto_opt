@@ -181,26 +181,13 @@ def run_pipeline(
         )
 
         if symmetry == 'glide':
-            theta_step = str(params.get('theta_c_step', 5))
+            raw_select = config.get('vdw_select', 'all')
+            vdw_select = [raw_select] if isinstance(raw_select, str) else list(raw_select)
             _run([
                 'auto_opt.vdw.sweep_phi',
                 '--monomer-path', monomer_path,
                 '--out-dir', auto_dir,
                 *common,
-                '--theta-step', theta_step,
-            ], dry_run=dry_run)
-
-            print("\n" + "-" * 60)
-            print("  Step 2: 初期点抽出  [glide のみ]")
-            print("-" * 60)
-            vdw_csv    = str(Path(auto_dir) / f"vdW_r_contact_{monomer}.csv")
-            init_csv   = str(Path(auto_dir) / "step1_init_params.csv")
-            raw_select = config.get('vdw_select', 'all')
-            vdw_select = [raw_select] if isinstance(raw_select, str) else list(raw_select)
-            _run([
-                'auto_opt.vdw.extract_init_phi',
-                '--vdw-csv', vdw_csv,
-                '--out', init_csv,
                 '--select', *vdw_select,
             ], dry_run=dry_run)
 

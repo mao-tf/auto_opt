@@ -497,10 +497,11 @@ with tab_vdw:
         # structure_type フィルタ
         if "structure_type" in vdw_df.columns:
             all_types = sorted(vdw_df["structure_type"].dropna().unique())
-            sel_types = st.multiselect(
-                "structure_type フィルタ", all_types, default=all_types, key="vdw_types"
-            )
-            vdw_df = vdw_df[vdw_df["structure_type"].isin(sel_types)]
+            if len(all_types) > 1:
+                sel_type = st.radio(
+                    "structure_type", all_types, horizontal=True, key="vdw_types"
+                )
+                vdw_df = vdw_df[vdw_df["structure_type"] == sel_type]
 
         # 固定パラメータでフィルタ
         vdw_fixed = vdw_df.copy()
