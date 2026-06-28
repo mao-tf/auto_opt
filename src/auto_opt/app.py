@@ -33,12 +33,9 @@ with st.sidebar:
     monomer_name = st.text_input("モノマー名", value="BTBT")
     monomer_dir  = st.text_input("モノマーデータディレクトリ", value=_MONOMER_DIR)
     mol_style    = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
-    st.divider()
-    local_work_dir = st.text_input(
-        "ローカル作業ディレクトリ",
-        placeholder=str(Path.home() / "Working" / "auto_opt" / "runs" / "run_name"),
-        key="local_work_dir",
-    )
+
+# local_work_dir はセットアップタブで定義し、他タブで参照できるよう先に初期化
+local_work_dir: str = st.session_state.get("local_work_dir", "")
 
 
 def _save_file(content: str, path: Path) -> None:
@@ -244,6 +241,19 @@ tab_setup, tab_vdw, tab_layer, tab_stack, tab_param = st.tabs(
 #  Tab 0: セットアップ
 # ══════════════════════════════════════════════════════════
 with tab_setup:
+    # ─── ローカル作業ディレクトリ ────────────────────────
+    st.subheader("ローカル作業ディレクトリ")
+    st.caption(
+        "この計算ランのローカル保存先を設定します。"
+        " run_config.yaml の保存・CSV の自動読み込み・SCP コマンドの生成に使われます。"
+    )
+    local_work_dir = st.text_input(
+        "ローカル作業ディレクトリ（絶対パス）",
+        placeholder=str(Path.home() / "Working" / "auto_opt" / "runs" / "run_name"),
+        key="local_work_dir",
+    )
+    st.divider()
+
     # ─── Step 1: モノマー ────────────────────────────────
     st.subheader("Step 1: モノマー")
     st.caption(
