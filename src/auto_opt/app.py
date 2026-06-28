@@ -17,7 +17,8 @@ import plotly.graph_objects as go
 import streamlit as st
 import py3Dmol
 
-from auto_opt.plot.make_cluster_xyz import make_cluster_xyz
+from auto_opt.plot.make_cluster_xyz import make_cluster_xyz, _load_symbols, _xyz_block, _cluster_screw, _cluster_glide
+from auto_opt.utils import place_monomer
 
 _MONOMER_DIR = str(Path(__file__).resolve().parents[2] / "data" / "monomer")
 _SEC_PER_CALC = 0.02   # sander 1計算あたりの実測値 (秒)
@@ -42,6 +43,67 @@ def _xyz_filename(row: pd.Series, sym: str) -> str:
             val = float(row[col])
             parts.append(f"{col}{val:{fmt}}")
     return "_".join(parts) + ".xyz"
+
+
+def make_stacking_xyz(row: pd.Series, monomer_name: str, sym: str,
+                      monomer_dir: str) -> str:
+    """層クラスター(9分子) + スタッキング分子(1〜2分子) の XYZ を返す。"""
+    alpha = float(row.get('alpha1', row.get('alpha', 0.0)))
+    beta  = float(row.get('beta',  0.0))
+    phi   = float(row.get('phi',   0.0))
+    z     = float(row.get('z',     0.0))
+    a     = float(row.get('a',     0.0))
+    bt1   = float(row.get('bt1',   0.0))
+    bt2   = float(row.get('bt2',   0.0))
+    b     = bt1 + bt2 if bt1 + bt2 > 0 else float(row.get('b', 0.0))
+    cx    = float(row.get('cx',    0.0))
+    cy    = float(row.get('cy',    0.0))
+    cz    = float(row.get('cz',    0.0))
+
+    syms = _load_symbols(monomer_name, monomer_dir)
+
+    # 層クラスター
+    if sym == 'screw':
+        layer_syms, layer_xyz = _cluster_screw(
+            monomer_name, a, b, bt1, bt2, z, alpha, beta, phi, monomer_dir
+        )
+    else:
+        layer_syms, layer_xyz = _cluster_glide(
+            monomer_name, a, b, z, alpha, phi, monomer_dir
+        )
+
+    # スタッキング分子（別層）
+    stack_syms:  list[str]        = []
+    stack_parts: list[np.ndarray] = []
+
+    if sym == 'screw':
+        for tx, ty, tz, al_sign in [
+            (cx,          cy,       cz,     alpha),
+            (a/2 + cx,    bt1 + cy, cz + z, -alpha),
+        ]:
+            arr = place_monomer(monomer_name, tx, ty, tz, phi, al_sign, beta,
+                                monomer_dir=monomer_dir)
+            stack_syms.extend(syms)
+            stack_parts.append(arr[:, :3])
+    else:
+        for tx, ty, tz, al_sign in [
+            (cx,       cy,      cz,    alpha),
+            (cx,       cy,      cz,   -alpha),
+        ]:
+            arr = place_monomer(monomer_name, tx, ty, tz, phi, al_sign,
+                                monomer_dir=monomer_dir)
+            stack_syms.extend(syms)
+            stack_parts.append(arr[:, :3])
+
+    stack_xyz = np.vstack(stack_parts)
+
+    all_syms  = layer_syms + stack_syms
+    all_xyz   = np.vstack([layer_xyz, stack_xyz])
+    n_atoms   = len(all_syms)
+    comment   = (f"{monomer_name} {sym} stacking | "
+                 f"alpha={alpha:.1f} beta={beta:.1f} phi={phi:.1f} z={z:.3f} "
+                 f"cx={cx:.2f} cy={cy:.2f} cz={cz:.2f}")
+    return f"{n_atoms}\n{comment}\n" + _xyz_block(all_syms, all_xyz)
 
 
 def _render_3d(row: pd.Series, sym: str, *, key_suffix: str = "") -> None:
@@ -949,26 +1011,29 @@ with tab_stack:
         else:
             df_plot_base = df_sr2.groupby(x_col_s2, as_index=False).first()
 
-        e_series = [
-            ("E_layer", "royalblue", "層内 E_layer"),
-            ("E_stack", "tomato",    "層間 E_stack (×2)"),
-            ("E_total", "seagreen",  "合計 E_total"),
-            ("E_int",   "tomato",    "層間 E_int"),
-        ]
-
+        # ─── グラフ ───────────────────────────────────────────
         fig_s2 = go.Figure()
-        plotted = set()
-        for col, color, label in e_series:
-            if col not in df_plot_base.columns or col in plotted:
+        for col, color, label in [
+            ("E_layer", "royalblue", "層内 E_layer"),
+            ("E_total", "seagreen",  "合計 E_total"),
+        ]:
+            if col not in df_plot_base.columns:
                 continue
-            y_vals = df_plot_base[col]
-            y_rel  = y_vals - y_vals.iloc[0]   # 最初の点を0基準に相対化
+            y = df_plot_base[col]
             fig_s2.add_trace(go.Scatter(
-                x=df_plot_base[x_col_s2], y=y_rel,
-                mode="lines+markers", name=label,
-                line=dict(color=color),
+                x=df_plot_base[x_col_s2], y=y - y.iloc[0],
+                mode="lines+markers", name=label, line=dict(color=color),
             ))
-            plotted.add(col)
+
+        # E_inter = 2 * E_stack（上下の層間を両方カウント）
+        e_inter_col = "E_stack" if "E_stack" in df_plot_base.columns else "E_int" if "E_int" in df_plot_base.columns else None
+        if e_inter_col:
+            y = df_plot_base[e_inter_col] * 2
+            fig_s2.add_trace(go.Scatter(
+                x=df_plot_base[x_col_s2], y=y - y.iloc[0],
+                mode="lines+markers", name="層間 E_inter (×2)", line=dict(color="tomato"),
+            ))
+
         fig_s2.update_layout(
             xaxis_title=x_col_s2,
             yaxis_title="ΔE (kcal/mol, 相対)",
@@ -976,13 +1041,46 @@ with tab_stack:
         )
         st.plotly_chart(fig_s2, use_container_width=True)
 
-        if sort_col and not df_plot_base.empty:
-            best = df_plot_base.loc[df_plot_base[sort_col].idxmin()]
-            info = "  ".join(
-                f"{c}={best[c]:.3f}" for c in [sort_col, "cy", "cz", x_col_s2]
-                if c in best and c != x_col_s2 or c == x_col_s2
-            )
-            st.caption(f"最安定: {info}")
+        # ─── パラメータテーブル ───────────────────────────────
+        st.subheader("各点のパラメータ")
+        show_cols = [x_col_s2] + [
+            c for c in ["alpha1", "alpha2", "beta", "phi", "z", "a", "bt1", "bt2", "b",
+                        "cx", "cy", "cz", "E_layer", "E_stack", "E_total"]
+            if c in df_plot_base.columns and c != x_col_s2
+        ]
+        st.dataframe(
+            df_plot_base[show_cols].reset_index(drop=True),
+            use_container_width=True,
+        )
+
+        # ─── 3D 表示（行クリックで選択）──────────────────────
+        st.subheader("スタッキング 3D 表示")
+        best_col_s = next((c for c in ["E_total", "E_stack", "E_int"] if c in df_plot_base.columns), None)
+        if best_col_s:
+            x_vals   = sorted(df_plot_base[x_col_s2].unique())
+            sel_x    = st.select_slider(x_col_s2, options=x_vals,
+                                        value=df_plot_base.loc[df_plot_base[best_col_s].idxmin(), x_col_s2],
+                                        key="stack_3d_slider")
+            sel_row  = df_plot_base[np.isclose(df_plot_base[x_col_s2], sel_x, atol=1e-5)].iloc[0]
+            sym_stk  = "screw" if "beta" in df_sr2.columns else "glide"
+            try:
+                xyz_stk = make_stacking_xyz(sel_row, monomer_name, sym_stk, monomer_dir)
+                view_stk = py3Dmol.view(width=600, height=400)
+                view_stk.addModel(xyz_stk, "xyz")
+                if mol_style == "Space fill":
+                    view_stk.setStyle({}, {"sphere": {"scale": 1.0}})
+                else:
+                    view_stk.setStyle({}, {"stick": {"radius": 0.15}, "sphere": {"radius": 0.3}})
+                view_stk.setProjection("orthographic")
+                view_stk.zoomTo()
+                st.components.v1.html(view_stk._make_html(), height=420)
+                e_info = "  ".join(
+                    f"{c}={sel_row[c]:.3f}" for c in ["E_layer", "E_stack", "E_total"]
+                    if c in sel_row
+                )
+                st.caption(e_info)
+            except Exception as e:
+                st.error(f"3D 生成エラー: {e}")
 
         st.download_button(
             label="スタッキング結果 CSV ダウンロード",
