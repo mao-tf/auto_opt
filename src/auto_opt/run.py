@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 import argparse
+import shutil
 import subprocess
 import sys
 import time
@@ -33,7 +34,7 @@ import pandas as pd
 import yaml
 
 # 実行ステップの順序
-STEPS = ['monomer', 'vdw', 'amber', 'collect']
+STEPS = ['monomer', 'vdw', 'amber', 'collect', 'stacking', 'merge']
 
 # デフォルト data ディレクトリ（パッケージ相対・後方互換用）
 _DATA_DIR    = Path(__file__).resolve().parents[2] / "data"
@@ -264,9 +265,69 @@ def run_pipeline(
         print(f"  streamlit run src/auto_opt/app.py")
 
 
+    # ── Step 6: スタッキング計算 ──────────────────────────────────────
+    if 'stacking' in steps_to_run:
+        print("\n" + "=" * 60)
+        print(f"  Step 6: スタッキング計算  [{symmetry}]")
+        print("=" * 60)
+
+        stacking_dir = config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking"))
+        Path(stacking_dir).mkdir(parents=True, exist_ok=True)
+
+        # amber/collect で生成された filtered_step1.csv をスタッキングの入力に使う
+        src_csv = Path(auto_dir) / 'filtered_step1.csv'
+        dst_csv = Path(stacking_dir) / 'step1_init_params.csv'
+        if src_csv.exists() and not dst_csv.exists():
+            shutil.copy2(src_csv, dst_csv)
+            print(f"[stacking] {src_csv.name} → {stacking_dir}/step1_init_params.csv")
+
+        _run([
+            'auto_opt.stacking.job_stacking',
+            '--auto-dir', stacking_dir,
+            '--monomer-name', monomer,
+            '--symmetry', symmetry,
+        ], dry_run=dry_run)
+
+        if 'merge' in steps_to_run and not dry_run:
+            from auto_opt.cluster import load_env, get_my_job_count
+            poll = load_env().get('poll_interval', 60)
+            print(f"\n[auto_opt] スタッキングジョブ投入完了。終了を待機中... ({poll}秒ごとに確認)")
+            while True:
+                n = get_my_job_count()
+                if n == 0:
+                    print("[auto_opt] 全ジョブ完了。")
+                    break
+                print(f"  残りジョブ数: {n}  ({poll}秒後に再確認...)")
+                time.sleep(poll)
+        else:
+            print(f"\n[auto_opt] ジョブ投入完了。完了後に merge を実行してください:")
+            print(f"  python -m auto_opt.run --config <config> --start-from merge")
+
+    # ── Step 7: スタッキング結果マージ ────────────────────────────────
+    if 'merge' in steps_to_run:
+        print("\n" + "=" * 60)
+        print("  Step 7: スタッキング結果マージ")
+        print("=" * 60)
+
+        stacking_dir = config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking"))
+        mono_dir, _ = _resolve_data_dirs(config)
+
+        _run([
+            'auto_opt.stacking.merge_results',
+            '--auto-dir', stacking_dir,
+            '--monomer-name', monomer,
+            '--data-dir', str(mono_dir.parent),
+        ], dry_run=dry_run)
+
+        out = Path(stacking_dir) / 'stacking_results.csv'
+        print(f"\n[auto_opt] 完了。ローカルにダウンロードして Streamlit で確認:")
+        print(f"  scp <server>:{out.resolve()} ~/Downloads/stacking_results.csv")
+        print(f"  streamlit run src/auto_opt/app.py")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="run_config.yaml に従い VdW → Amber → 局所最小収集 を順番に実行する"
+        description="run_config.yaml に従い VdW → Amber → スタッキング を順番に実行する"
     )
     ap.add_argument('--config',      required=True,
                     help='設定ファイルのパス (run_config.yaml)')
