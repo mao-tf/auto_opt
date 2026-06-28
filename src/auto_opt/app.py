@@ -104,7 +104,7 @@ def make_stacking_xyz(row: pd.Series, monomer_name: str, sym: str,
     all_xyz   = np.vstack([layer_xyz, stack_xyz])
     n_atoms   = len(all_syms)
     comment   = (f"{monomer_name} {sym} stacking | "
-                 f"alpha={alpha:.1f} beta={beta:.1f} phi={phi:.1f} z={z:.3f} "
+                 f"alpha1={alpha1:.1f} alpha2={alpha2:.1f} beta={beta:.1f} phi={phi:.1f} z={z:.3f} "
                  f"cx={cx:.2f} cy={cy:.2f} cz={cz:.2f}")
     return f"{n_atoms}\n{comment}\n" + _xyz_block(all_syms, all_xyz)
 
