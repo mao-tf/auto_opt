@@ -1,6 +1,6 @@
 # auto_opt システム仕様書
 
-最終更新: 2026-06-27（SSH 連携機能を計画に追加）
+最終更新: 2026-06-28（Tab3 スタッキング結果UI強化・SSH連携機能詳細追加）
 
 ---
 
@@ -217,7 +217,12 @@ HTML/JavaScript（React 等）の方が UI の自由度・レスポンスは高�
 
 | 機能 | 説明 |
 |------|------|
-| 結果プロット | `stacking_results.csv` を読み込み E_layer/E_stack/E_total を1Dプロット |
+| 結果プロット | `stacking_results.csv` を読み込み E_layer / E_inter(×2) / E_total を相対エネルギーで1Dプロット |
+| X軸選択 | z / phi / beta / cy / cz から選択。全X値で他変数をまたいで最安定点を自動選択 |
+| パラメータテーブル | 各X値点の全パラメータ（alpha, beta, phi, z, a, bt1, bt2, cx, cy, cz, E_layer, E_stack, E_total）を表示 |
+| 3D表示 | スライダーでX軸値を選択 → 層クラスター(9分子)＋スタッキング分子(2分子)を py3Dmol で表示 |
+| CSV ダウンロード | テーブル表示列のみのサマリーを `{MON}_stacking_summary.csv` として出力 |
+| エネルギー定義 | E_total = E_layer + 2×E_stack（上下2層分をカウント） |
 
 **Tab 4: 変数説明**（お試し機能、v0.2.0 で戻せる）
 
@@ -269,8 +274,10 @@ Amber ツールのパスは `cluster.get_amber_tool()` で `~/.auto_opt.yaml` �
 | 項目 | 内容 |
 |------|------|
 | スクリプト | `stacking/merge_results.py` |
-| 入力 | `split_*/step1.csv` |
-| 出力 | `stacking_results.csv`（cy, cz, E 等） |
+| 入力 | `split_*/step1.csv`、`stacking_candidates.csv`（E_layer 取得用） |
+| 出力 | `stacking_results.csv`（cy, cz, E_stack, E_layer, E_total 等） |
+| オプション | `--candidates stacking_candidates.csv` で E_layer・E_total を自動計算 |
+| エネルギー | `E_stack = E_amber - 18×E_mono`、`E_total = E_layer + 2×E_stack` |
 
 ---
 
@@ -354,15 +361,26 @@ amber_tools:
 - ユーザーのローカルマシンに `~/.ssh/id_rsa`（または `id_ed25519`）が存在し、HPC にパスワードなしで SSH できること
 - アプリはローカルで `streamlit run` することが前提（クラウドへのデプロイは対象外。秘密鍵をサーバーに置けないため）
 
-### 追加する機能
+### サイドバーに追加する設定項目
 
-| 機能 | 説明 |
-|------|------|
-| SSH キーパス入力 | Tab 0 に `~/.ssh/id_rsa` などのパスを入力欄として追加 |
-| ファイル転送ボタン | `run_config.yaml` / `~/.auto_opt.yaml` / `monomer_raw.xyz` を SFTP で HPC に送信 |
-| コマンド実行ボタン | `python -m auto_opt.run ...` を SSH 経由で実行 |
-| ログ表示 | stdout/stderr をリアルタイムで Streamlit の `st.code` に表示 |
-| ファイル取得ボタン | HPC の結果ファイル（`step1_init_params.csv` 等）をローカルにダウンロード |
+| 設定 | 例 |
+|------|----|
+| HPC ホスト | `133.11.68.31` |
+| HPC ユーザー名 | `miyoshi` |
+| SSH 秘密鍵パス | `~/.ssh/id_rsa` |
+| HPC 作業ディレクトリ | `/home/miyoshi/Working/auto_opt` |
+| **ローカル作業ディレクトリ** | `~/Working/auto_opt/runs` |
+
+ローカル作業ディレクトリを指定することで、結果ファイルが自動的にそのディレクトリ以下に保存される。
+
+### 各タブに追加するボタン・機能
+
+| タブ | 追加機能 |
+|------|---------|
+| Tab 0 | ① `monomer_raw.xyz` を HPC へアップロード ② `run_config.yaml` / `~/.auto_opt.yaml` を HPC へ転送 ③ `python -m auto_opt.run --stop-after vdw` を SSH 実行 |
+| Tab 1 | ① `step1_init_params.csv` をローカル作業ディレクトリに自動ダウンロード ② `python -m auto_opt.run --start-from amber` を SSH 実行 |
+| Tab 2 | ① `stacking_candidates.csv` を HPC へアップロード ② `sweep_stacking_vdw` をローカル実行 → `step1_init_params.csv` を HPC へ転送 ③ `job_stacking.py` を SSH 実行 → qstat ポーリングで進捗表示 ④ 完了後 `merge_results.py` を SSH 実行 ⑤ `stacking_results.csv` をローカルに自動ダウンロード |
+| Tab 3 | 結果が自動的に表示される（手動アップロード不要になる） |
 
 ### 実装方針
 
@@ -373,14 +391,24 @@ ssh = paramiko.SSHClient()
 ssh.load_system_host_keys()
 ssh.connect(host, username=user, key_filename=key_path)
 
-# ファイル転送
+# ファイル転送（ローカル→HPC）
 sftp = ssh.open_sftp()
 sftp.put(local_path, remote_path)
 
-# コマンド実行
+# ファイル取得（HPC→ローカル作業ディレクトリ）
+local_save = Path(local_work_dir) / Path(remote_path).name
+sftp.get(remote_path, str(local_save))
+
+# コマンド実行・ログ表示
 stdin, stdout, stderr = ssh.exec_command(cmd)
 for line in stdout:
     st.write(line)
+```
+
+### 依存ライブラリ
+
+```bash
+pip install paramiko
 ```
 
 ---
@@ -391,19 +419,22 @@ for line in stdout:
 |------|--------|------|
 | ✅ | 高 | モノマー前処理 `--mode all` 実装 |
 | ✅ | 高 | `cluster.get_amber_tool()` による AmberTools パス解決 |
-| ✅ | 高 | `run.py` に monomer ステップ追加 |
+| ✅ | 高 | `run.py` に monomer・stacking・merge ステップ追加 |
 | ✅ | 高 | スタッキング IO・ドライバー・ジョブ投入を glide/screw 統合で書き直し |
 | ✅ | 高 | `sweep_stacking_vdw.py` glide/screw の分子配置を正しく分離 |
 | ✅ | 中 | `app.py` スタッキング候補選択 UI（ヒートマップ複数選択） |
 | ✅ | 高 | `app.py` Tab 0 セットアップUI実装 |
 | ✅ | 中 | `data_dir` を `run_config.yaml` で指定可能に変更 |
+| ✅ | 高 | `merge_results.py` に E_layer / E_stack / E_total 計算を追加 |
+| ✅ | 高 | Tab 3 スタッキング結果UI（相対エネルギープロット・パラメータテーブル・3D表示）実装 |
+| ✅ | 高 | **スタッキング動作確認**（DNTT screwで実計算・結果確認済み） |
 | 🔲 | 高 | **セットアップ〜モノマー前処理の動作確認** |
-| 🔲 | 高 | `run.py` にスタッキングステップ追加 |
-| 🔲 | 高 | スタッキング動作確認（isTest → 実計算） |
 | 🔲 | 中 | `--monomer-dir` を amber/stacking 全スクリプトに通す（`data_dir` 対応の完成） |
 | 🔲 | 高 | **VdW グリッド力場1点評価の動作確認**（`job_eval_grid.py` → Tab 1 マップ品質確認） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
-| 🔲 | 低 | SSH 連携機能の実装（Paramiko によるファイル転送・コマンド実行・ログ表示） |
+| 🔲 | 中 | **SSH 連携機能の実装**（ローカル作業ディレクトリ指定・ファイル自動授受・HPC コマンド実行・進捗表示） |
+| 🔲 | 低 | HPC 可搬性対応（分子科学研究所 PBS/SLURM スケジューラー対応） |
+| 🔲 | 低 | ドキュメント整備（計算化学を知らない材料研究者向け README） |
 
 ### セットアップ〜モノマー前処理 動作確認チェックリスト
 
