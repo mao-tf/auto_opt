@@ -30,8 +30,12 @@ st.title("auto_opt — 可視化 UI")
 # ─── サイドバー: 共通設定 ───────────────────────────────────
 with st.sidebar:
     st.header("共通設定")
-    monomer_name = st.text_input("モノマー名", value="BTBT")
-    mol_style    = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
+    monomer_name = st.text_input(
+        "モノマー名",
+        value=st.session_state.get("monomer_name", "BTBT"),
+        key="monomer_name",
+    )
+    mol_style = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
 
 # local_work_dir はセットアップタブで定義し、他タブで参照できるよう先に初期化
 local_work_dir: str = st.session_state.get("local_work_dir", "")
@@ -261,16 +265,54 @@ with tab_setup:
     st.divider()
 
     # ─── Step 1: モノマー ────────────────────────────────
-    st.subheader("Step 1: モノマー")
+    st.subheader("Step 1: モノマー xyz をドロップ")
     st.caption(
-        "左サイドバーの「モノマー名」が全ファイルのキーになります（例: BTBT）。"
-        " ここではモノマーの性質と対称性を設定します。"
+        "Gaussian で最適化する前の粗い構造ファイル（.xyz）をドロップしてください。"
+        " ファイル名からモノマー名を自動検出します。"
     )
-    local_xyz = st.text_input(
-        "ローカルの xyz ファイルパス（前処理前の粗い構造）",
-        placeholder="/Users/you/Documents/my_molecule.xyz",
-        key="setup_local_xyz",
+    uploaded_xyz = st.file_uploader(
+        "xyz ファイルをドロップ",
+        type=["xyz"],
+        key="setup_xyz_upload",
+        label_visibility="collapsed",
     )
+
+    _lwd_mono = Path(local_work_dir) / "data" / "monomer" if local_work_dir.strip() else None
+
+    if uploaded_xyz is not None:
+        _stem = Path(uploaded_xyz.name).stem
+        import re as _re
+        _auto_name = _re.sub(r'[_-](raw|pre|input|pre_opt)$', '', _stem)
+
+        _name_col, _mode_col = st.columns([2, 3])
+        _name_mode = _mode_col.radio(
+            "モノマー名",
+            [f"自動（{_auto_name}）", "手動で指定"],
+            horizontal=True,
+            key="setup_name_mode",
+            label_visibility="collapsed",
+        )
+        if "手動" in _name_mode:
+            _resolved_name = _name_col.text_input(
+                "モノマー名", value=_auto_name, key="setup_monomer_name_manual"
+            )
+        else:
+            _resolved_name = _auto_name
+            _name_col.markdown(f"**モノマー名:** `{_auto_name}`")
+
+        if _lwd_mono:
+            _save_xyz_path = _lwd_mono / f"{_resolved_name}_raw.xyz"
+            if st.button(f"xyz をローカルに保存  →  {_save_xyz_path}", key="save_raw_xyz"):
+                _save_file(uploaded_xyz.getvalue().decode("utf-8"), _save_xyz_path)
+                st.session_state["monomer_name"] = _resolved_name
+                st.rerun()
+        else:
+            st.caption("💡 ローカル作業ディレクトリを設定すると保存ボタンが現れます")
+
+        _local_xyz_out = str(_lwd_mono / f"{_resolved_name}_raw.xyz") if _lwd_mono else f"<local>/{_resolved_name}_raw.xyz"
+    else:
+        _resolved_name = monomer_name
+        _local_xyz_out = f"<local>/{monomer_name}_raw.xyz"
 
     c1, c2, c3 = st.columns(3)
     setup_sym    = c1.selectbox("対称性", ["glide", "screw"], key="setup_sym")
@@ -365,7 +407,6 @@ with tab_setup:
     _hpc_workdir_out = hpc_workdir.strip() or f"/path/to/{monomer_name}"
     _auto_dir_out    = f"{_hpc_workdir_out}/runs/{monomer_name}_{setup_sym}"
     _mono_xyz_hpc    = f"{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz"
-    _local_xyz_out   = local_xyz.strip()   or f"/path/to/{monomer_name}_raw.xyz"
 
     # ─── 生成物 ──────────────────────────────────────────
     st.divider()
@@ -452,24 +493,33 @@ with tab_setup:
 
     # コマンド
     st.subheader("コマンド")
-    st.caption("1. ローカルで実行 — スパコンへファイル転送")
     _lwd_str = local_work_dir.strip() or "<ローカル作業ディレクトリ>"
     _run_config_local = f"{_lwd_str}/run_config.yaml"
+    _lwd_mono_str = f"{_lwd_str}/data/monomer"
+
+    st.caption("1. ローカル → HPC へ転送")
     st.code(
-        f"# モノマー xyz を転送（ファイル名は {monomer_name}_raw.xyz に変換されます）\n"
+        f"# モノマー xyz を転送\n"
         f"scp {_local_xyz_out} \\\n"
-        f"    {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz\n\n"
+        f"    {_hpc_host_out}:{_mono_xyz_hpc}\n\n"
         f"# 設定ファイルを転送\n"
         f"scp {_run_config_local} {_hpc_host_out}:{_auto_dir_out}/\n\n"
         f"# 環境設定（初回のみ）\n"
         f"scp ~/.auto_opt.yaml {_hpc_host_out}:~/.auto_opt.yaml",
         language="bash",
     )
-    st.caption("2. スパコン上で実行")
+    st.caption("2. HPC 上で実行（モノマー最適化 → VdW スウィープ）")
     st.code(
         f"cd {_hpc_workdir_out}\n"
         f"python -m auto_opt.run --config {_auto_dir_out}/run_config.yaml"
         f" --start-from monomer --stop-after vdw",
+        language="bash",
+    )
+    st.caption("3. HPC → ローカル へ結果を取得（最適化後モノマーファイル）")
+    st.code(
+        f"mkdir -p {_lwd_mono_str}\n"
+        f"scp {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/{monomer_name}.{{xyz,mol2,csv}} \\\n"
+        f"    {_lwd_mono_str}/",
         language="bash",
     )
 
