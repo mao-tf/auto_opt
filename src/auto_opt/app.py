@@ -31,11 +31,17 @@ st.title("auto_opt — 可視化 UI")
 with st.sidebar:
     st.header("共通設定")
     monomer_name = st.text_input("モノマー名", value="BTBT")
-    monomer_dir  = st.text_input("モノマーデータディレクトリ", value=_MONOMER_DIR)
     mol_style    = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
 
 # local_work_dir はセットアップタブで定義し、他タブで参照できるよう先に初期化
 local_work_dir: str = st.session_state.get("local_work_dir", "")
+
+# モノマーデータディレクトリ: local_work_dir/data/monomer を優先、なければパッケージ付属
+monomer_dir = (
+    str(Path(local_work_dir) / "data" / "monomer")
+    if local_work_dir.strip()
+    else _MONOMER_DIR
+)
 
 
 def _save_file(content: str, path: Path) -> None:
