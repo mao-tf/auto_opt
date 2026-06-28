@@ -271,19 +271,35 @@ def run_pipeline(
         print(f"  Step 6: スタッキング計算  [{symmetry}]")
         print("=" * 60)
 
-        stacking_dir = config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking"))
-        Path(stacking_dir).mkdir(parents=True, exist_ok=True)
+        stacking_dir = Path(config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking")))
+        stacking_dir.mkdir(parents=True, exist_ok=True)
 
-        # amber/collect で生成された filtered_step1.csv をスタッキングの入力に使う
-        src_csv = Path(auto_dir) / 'filtered_step1.csv'
-        dst_csv = Path(stacking_dir) / 'step1_init_params.csv'
-        if src_csv.exists() and not dst_csv.exists():
-            shutil.copy2(src_csv, dst_csv)
-            print(f"[stacking] {src_csv.name} → {stacking_dir}/step1_init_params.csv")
+        # candidates CSV: run_config.yaml で指定するか、filtered_step1.csv を使う
+        cands_csv = Path(config.get('stacking_candidates', str(Path(auto_dir) / 'filtered_step1.csv')))
+        if not cands_csv.exists():
+            raise FileNotFoundError(
+                f"[stacking] 候補 CSV が見つかりません: {cands_csv}\n"
+                f"  app.py の「層内最適化」タブで候補を選んで CSV をダウンロードし、\n"
+                f"  run_config.yaml に stacking_candidates: <path> を追加してください。"
+            )
+
+        # VdW スキャンで cx/cy/cz の初期値を生成（Amber 不要・ローカルで実行可）
+        init_csv = stacking_dir / 'step1_init_params.csv'
+        if not init_csv.exists():
+            print(f"[stacking] VdW スキャンで初期値を生成: {cands_csv.name} → step1_init_params.csv")
+            _run([
+                'auto_opt.stacking.sweep_stacking_vdw',
+                '--candidates', str(cands_csv),
+                '--monomer', monomer,
+                '--out-dir', str(stacking_dir),
+                '--symmetry', symmetry,
+            ], dry_run=dry_run)
+        else:
+            print(f"[stacking] step1_init_params.csv が既に存在します。VdW スキャンをスキップします。")
 
         _run([
             'auto_opt.stacking.job_stacking',
-            '--auto-dir', stacking_dir,
+            '--auto-dir', str(stacking_dir),
             '--monomer-name', monomer,
             '--symmetry', symmetry,
         ], dry_run=dry_run)
@@ -309,17 +325,17 @@ def run_pipeline(
         print("  Step 7: スタッキング結果マージ")
         print("=" * 60)
 
-        stacking_dir = config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking"))
+        stacking_dir = Path(config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking")))
         mono_dir, _ = _resolve_data_dirs(config)
 
         _run([
             'auto_opt.stacking.merge_results',
-            '--auto-dir', stacking_dir,
+            '--auto-dir', str(stacking_dir),
             '--monomer-name', monomer,
             '--data-dir', str(mono_dir.parent),
         ], dry_run=dry_run)
 
-        out = Path(stacking_dir) / 'stacking_results.csv'
+        out = stacking_dir / 'stacking_results.csv'
         print(f"\n[auto_opt] 完了。ローカルにダウンロードして Streamlit で確認:")
         print(f"  scp <server>:{out.resolve()} ~/Downloads/stacking_results.csv")
         print(f"  streamlit run src/auto_opt/app.py")
