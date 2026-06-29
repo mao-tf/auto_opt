@@ -1,5 +1,0 @@
-source leaprc.gaff2
-MOL = loadmol2 PNT_HF_esp.mol2
-loadamberparams PNT_HF_esp_gaff2.frcmod
-saveamberparm MOL PNT_HF_esp_gaff2.prmtop PNT_HF_esp_gaff2.inpcrd
-quit
