@@ -222,7 +222,8 @@ def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, 
 #     GaussView 用 XYZ
 # ==========================
 
-def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> List[str]:
+def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int,
+                 monomer_dir: str | None = None) -> List[str]:
     """
     GaussView用 XYZ （コメント行含む）
     structure_type:
@@ -234,11 +235,11 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     phi   = params_dict.get('phi', 0.0)
     alpha = params_dict.get('alpha', 0.0)
 
-    mon_i  = place_monomer(monomer_name, 0,   0,   0,   phi,  alpha)
-    mon_p1 = place_monomer(monomer_name, a,   0,   0,   phi,  alpha)
-    mon_p2 = place_monomer(monomer_name, 0,   b, 2*z,   phi,  alpha)
-    mon_t1 = place_monomer(monomer_name, a/2, b/2,  z,  phi, -alpha)
-    mon_t2 = place_monomer(monomer_name,-a/2, b/2,  z,  phi, -alpha)
+    mon_i  = place_monomer(monomer_name, 0,   0,   0,   phi,  alpha, monomer_dir=monomer_dir)
+    mon_p1 = place_monomer(monomer_name, a,   0,   0,   phi,  alpha, monomer_dir=monomer_dir)
+    mon_p2 = place_monomer(monomer_name, 0,   b, 2*z,   phi,  alpha, monomer_dir=monomer_dir)
+    mon_t1 = place_monomer(monomer_name, a/2, b/2,  z,  phi, -alpha, monomer_dir=monomer_dir)
+    mon_t2 = place_monomer(monomer_name,-a/2, b/2,  z,  phi, -alpha, monomer_dir=monomer_dir)
 
     if structure_type == 1:
         arr = np.concatenate([mon_i, mon_p1], axis=0)
@@ -276,7 +277,8 @@ def get_file_name_from_dict(monomer_name: str, params_dict: dict, structure_type
         name += f"_{key}_{val}"
     return name + f'_{structure_type}.mol2'
 
-def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int) -> str:
+def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int,
+                 monomer_dir: str | None = None) -> str:
     """
     実際には Gaussian ではなく、Amber用の **ダイマー mol2** を作る。
     structure_type=1(a),2(b),3(t) のいずれかで1ダイマーのみを書き出す。
@@ -287,10 +289,10 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     phi   = params_dict.get('phi', 0.0)
     alpha = params_dict.get('alpha', 0.0)
 
-    mon_i  = place_monomer(monomer_name, 0,   0,   0,   phi,  alpha)
-    mon_p1 = place_monomer(monomer_name, a,   0,   0,   phi,  alpha)
-    mon_p2 = place_monomer(monomer_name, 0,   b, 2*z,   phi,  alpha)
-    mon_t1 = place_monomer(monomer_name, a/2, b/2,  z,  phi, -alpha)
+    mon_i  = place_monomer(monomer_name, 0,   0,   0,   phi,  alpha, monomer_dir=monomer_dir)
+    mon_p1 = place_monomer(monomer_name, a,   0,   0,   phi,  alpha, monomer_dir=monomer_dir)
+    mon_p2 = place_monomer(monomer_name, 0,   b, 2*z,   phi,  alpha, monomer_dir=monomer_dir)
+    mon_t1 = place_monomer(monomer_name, a/2, b/2,  z,  phi, -alpha, monomer_dir=monomer_dir)
 
     if structure_type == 1:
         dimer = np.concatenate([mon_i, mon_p1], axis=0)
@@ -315,7 +317,8 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
 #     実行ラッパ
 # ==========================
 
-def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int, isTest: bool = True) -> str:
+def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int,
+             isTest: bool = True, monomer_dir: str | None = None) -> str:
     """
     - gaussview 用 .xyz を作成
     - amber 用 ダイマー .mol2 を作成
@@ -328,10 +331,10 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type
     os.makedirs(gv_dir, exist_ok=True)
     xyzfile_name = make_xyz(monomer_name, params_dict, structure_type)
     with open(os.path.join(gv_dir, xyzfile_name), 'w') as f:
-        f.writelines(make_xyzfile(monomer_name, params_dict, structure_type))
+        f.writelines(make_xyzfile(monomer_name, params_dict, structure_type, monomer_dir=monomer_dir))
 
     # mol2 + job
-    file_name = make_gjf_xyz(auto_dir, monomer_name, params_dict, structure_type)
+    file_name = make_gjf_xyz(auto_dir, monomer_name, params_dict, structure_type, monomer_dir=monomer_dir)
     file_job, out_name = get_one_exe(auto_dir, file_name, monomer_name)
 
     if not isTest:
