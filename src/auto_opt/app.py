@@ -27,6 +27,10 @@ _N_DIMERS = {'glide': 3, 'screw': 4}
 st.set_page_config(page_title="auto_opt viewer", layout="wide")
 st.title("auto_opt — 可視化 UI")
 
+# ペンディング中のモノマー名をウィジェット描画前にセット（st.rerun()後の2周目で反映）
+if "_pending_monomer_name" in st.session_state:
+    st.session_state["monomer_name"] = st.session_state.pop("_pending_monomer_name")
+
 # ─── サイドバー: 共通設定 ───────────────────────────────────
 with st.sidebar:
     st.header("共通設定")
@@ -304,7 +308,7 @@ with tab_setup:
             _save_xyz_path = _lwd_mono / f"{_resolved_name}_raw.xyz"
             if st.button(f"xyz をローカルに保存  →  {_save_xyz_path}", key="save_raw_xyz"):
                 _save_file(uploaded_xyz.getvalue().decode("utf-8"), _save_xyz_path)
-                st.session_state["monomer_name"] = _resolved_name
+                st.session_state["_pending_monomer_name"] = _resolved_name
                 st.rerun()
         else:
             st.caption("💡 ローカル作業ディレクトリを設定すると保存ボタンが現れます")
