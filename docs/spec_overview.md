@@ -1,6 +1,6 @@
 # auto_opt システム仕様書
 
-最終更新: 2026-06-28（Tab3 スタッキング結果UI強化・SSH連携機能詳細追加・実行環境柔軟性の設計追加）
+最終更新: 2026-06-29（glide VdWスウィープ直接出力化・UI改善・ディレクトリ構成整理）
 
 ---
 
@@ -62,10 +62,9 @@ SSH 連携機能（Section 6）では、各ステップをローカル or HPC �
 ┌──────────────────────────────────────────────────────┐
 │  Step 1: 層内 VdW スウィープ                          │
 │                                                      │
-│  [glide]  vdw/sweep_phi.py       → vdW_r_contact.csv│
-│             ↓ extract_init_phi.py                    │
+│  [glide]  vdw/sweep_phi.py → step1_init_params.csv  │
 │  [screw]  vdw/sweep_screw_phi.py → step1_init_      │
-│                                    params.csv (直接) │
+│                                    params.csv        │
 └──────────────┬───────────────────────────────────────┘
                │ step1_init_params.csv
                ▼
@@ -136,9 +135,9 @@ SSH 連携機能（Section 6）では、各ステップをローカル or HPC �
 
 | 項目 | 内容 |
 |------|------|
-| スクリプト | `vdw/sweep_phi.py` → `vdw/extract_init_phi.py` |
-| パラメータ | alpha, phi, z の範囲と刻み |
-| 出力 | `step1_init_params.csv` |
+| スクリプト | `vdw/sweep_phi.py` |
+| パラメータ | alpha, phi, z の範囲と刻み、vdw_select (a-stack/b-stack/all) |
+| 出力 | `step1_init_params.csv`（a-stack / b-stack 分類付き、直接出力） |
 
 #### 螺旋軸（screw）
 
@@ -205,14 +204,16 @@ HTML/JavaScript（React 等）の方が UI の自由度・レスポンスは高�
 
 | 機能 | 説明 |
 |------|------|
-| monomer.xyz アップロード | 前処理前の粗い構造 → HPC 転送用にダウンロード |
+| ローカル作業ディレクトリ | セットアップタブ先頭で指定。yaml/xyz 保存先の基準パスになる |
+| monomer.xyz ドラッグ&ドロップ | ファイル名から自動推定 or 手動でモノマー名を指定 → `{local_work_dir}/data/monomer/{name}_raw.xyz` に直接保存 |
 | 対称性 / 電荷 / 多重度 | glide or screw、Gaussian 計算パラメータ |
-| HPC 設定 | user@hostname、作業ディレクトリ、auto_dir |
+| HPC 設定 | user@hostname、HPC 作業ディレクトリ（プロジェクトルート）を指定。`auto_dir`・`data_dir`・`monomer_xyz` を自動導出 |
 | Amber Tools パス | スパコン上の bin ディレクトリ。キュー設定（gr1.q / gr2.q）も入力 |
 | 粗VdWパラメータ | デフォルト値入り（glide: α0-90/10°, φ-10-10/4°, z-2-2/0.5; screw: +β-20-20/5°） |
-| ~/.auto_opt.yaml 生成 | 入力値から生成、コードブロック表示 + ダウンロード |
-| run_config.yaml 生成 | monomer_xyz パス付きで生成 + ダウンロード |
-| コマンド表示 | scp 転送コマンド（ローカル実行）＋ `python -m auto_opt.run --start-from monomer --stop-after vdw`（スパコン実行） |
+| HPC ディレクトリ構成プレビュー | 入力値から生成されるディレクトリ構造を表示 |
+| ~/.auto_opt.yaml 生成 | 入力値から生成、コードブロック表示 + `~/.auto_opt.yaml` に保存ボタン |
+| run_config.yaml 生成 | `auto_dir`/`data_dir`/`monomer_xyz` パス付きで生成 → `{local_work_dir}/run_config.yaml` に直接保存 |
+| コマンド表示 | scp 転送コマンド ＋ `python -m auto_opt.run --start-from monomer --stop-after vdw`（cd 不要・絶対パス指定） |
 | **[計画] SSH 連携** | Paramiko を使い「ファイル転送」「コマンド実行」「ログ表示」をボタン1つで実行（→ SSH連携機能 参照） |
 
 **Tab 1: VdW スキャン**
@@ -221,7 +222,7 @@ HTML/JavaScript（React 等）の方が UI の自由度・レスポンスは高�
 |------|------|
 | a×b ヒートマップ | `step1_init_params.csv` から任意の2軸で格子面積マップを表示 |
 | 3D 表示 | クリックした点の9分子クラスターを py3Dmol で表示（E列なしでも動作） |
-| structure_type フィルタ | a-stack / b-stack / local_min を選択 |
+| structure_type フィルタ | a-stack / b-stack をラジオボタンで選択（単一選択） |
 | 精細スキャン設定 | 各変数の min/max/step を設定 → `run_config.yaml` をダウンロード |
 | コマンド表示 | `python -m auto_opt.run --config run_config.yaml` を表示（VdW→Amber→collect を一括実行） |
 
@@ -310,13 +311,12 @@ src/auto_opt/
 ├── cluster.py                  ← SGE ジョブ管理・設定読み込み
 ├── run.py                      ← Step 0-3 オーケストレーター
 ├── app.py                      ← Streamlit 可視化 UI
-├── utils.py
+├── utils.py                    ← 回転行列・vdW半径・Amberパーサ等
 ├── monomer/
 │   └── prep_monomer.py
 ├── vdw/
-│   ├── sweep_phi.py
-│   ├── sweep_screw_phi.py
-│   └── extract_init_phi.py
+│   ├── sweep_phi.py            ← glide VdWスウィープ（step1_init_params.csv を直接出力）
+│   └── sweep_screw_phi.py
 ├── amber/
 │   ├── make_io_gene_phi.py
 │   ├── driver_gene_phi.py
@@ -325,26 +325,34 @@ src/auto_opt/
 │   ├── driver_screw_phi.py
 │   ├── job_screw_phi.py
 │   ├── eval_vdw_grid.py          ← VdW グリッド全点 力場1点評価ドライバー
-│   └── job_eval_grid.py          ← 同 SGE ジョブ投入スクリプト
+│   ├── job_eval_grid.py          ← 同 SGE ジョブ投入スクリプト
+│   └── resources/
+│       ├── FF_calc.in
+│       └── epsilon_*.frcmod
 ├── stacking/
 │   ├── sweep_stacking_vdw.py
 │   ├── make_io_stacking.py       ← glide ダイマーペア生成
 │   ├── make_io_stacking_screw.py ← screw ダイマーペア生成
 │   ├── driver_stacking.py        ← glide/screw 統合ドライバー
 │   ├── job_stacking.py           ← glide/screw 統合ジョブ投入
-│   └── merge_results.py          ← 結果収集
+│   ├── merge_results.py          ← 結果収集
+│   ├── merge_csv.py
+│   └── resources/
+│       └── FF_calc.in
 ├── plot/
-│   └── make_cluster_xyz.py
+│   ├── make_cluster_xyz.py
+│   ├── energy_map.py
+│   └── export_xyz.py
 └── gaussian/
     ├── pipeline_phi.py
-    └── pipeline_screw_phi.py
+    ├── pipeline_screw_phi.py
+    ├── driver_dft_jobs.py
+    └── extract_minima.py
 
-legacy/                           ← 旧版（参照のみ）
-data/
-  monomer/                        ← {MON}.csv, {MON}.mol2
-  amber_ref/                      ← {MON}_gaff2.out
+legacy/                           ← 旧版スクリプト（git 管理外）
+data/                             ← モノマー・計算データ（git 管理外）
 examples/
-  auto_opt_env.yaml               ← ~/.auto_opt.yaml のテンプレート
+  auto_opt.yaml                   ← ~/.auto_opt.yaml のテンプレート
   run_config.yaml                 ← run.py 設定ファイルのテンプレート
 ```
 
@@ -508,8 +516,7 @@ Tab 0 で生成したファイルとコマンドを使って、以下を順に�
 - [ ] `<workdir>/data/monomer/<MON>.csv` が生成されている
 - [ ] `<workdir>/data/monomer/<MON>.mol2` が生成されている（RESP 電荷付き）
 - [ ] `<workdir>/data/amber_ref/<MON>_gaff2.out` が生成されている
-- [ ] VdW スウィープが走り `<workdir>/runs/<MON>_<sym>/vdW_r_contact_<MON>.csv` が生成されている
-- [ ] `step1_init_params.csv` が生成されている
+- [ ] VdW スウィープが走り `<auto_dir>/step1_init_params.csv` が生成されている
 
 **確認（ローカル）**
 - [ ] `step1_init_params.csv` を scp でダウンロードし Tab 1 (VdW スキャン) で読み込める

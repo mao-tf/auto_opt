@@ -1,5 +1,9 @@
 # アーキテクチャレビュー: auto_opt
 
+> **注意（2026-06-29）**: このドキュメントは旧アーキテクチャ（legacy/以下のスクリプト群）のレビューです。
+> 現行アーキテクチャは `docs/spec_overview.md` を参照してください。
+> 指摘事項の多くは現行版で対処済みです（`run.py` オーケストレーター・`data_dir` 設定化・`sweep_phi.py` 直接出力化など）。
+
 > 対象論文: "Origin of Layered Herringbone Packing and Polymorphism in Polyacenes: A Quantum Chemical Optimization Approach" (Ono et al., JACS submitted)
 > レビュー日: 2026-05-02
 
