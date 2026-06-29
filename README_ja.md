@@ -23,7 +23,7 @@
 ## インストール
 
 ```bash
-git clone https://github.com/<your-org>/auto_opt.git
+git clone https://github.com/mao-tf/auto_opt.git
 cd auto_opt
 pip install -e .
 ```

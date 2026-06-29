@@ -23,7 +23,7 @@ Given a monomer XYZ file, this tool sweeps van der Waals contact geometries, opt
 ## Installation
 
 ```bash
-git clone https://github.com/<your-org>/auto_opt.git
+git clone https://github.com/mao-tf/auto_opt.git
 cd auto_opt
 pip install -e .
 ```
