@@ -213,6 +213,7 @@ def run_pipeline(
             '--auto-dir', auto_dir,
             '--monomer-name', monomer,
             '--symmetry', symmetry,
+            '--monomer-dir', str(mono_dir),
         ], dry_run=dry_run)
 
     # ── Step 3: Amber 最適化 ─────────────────────────────────────────

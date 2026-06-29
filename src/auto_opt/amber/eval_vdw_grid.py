@@ -53,11 +53,13 @@ def _prepare_resources(auto_dir: Path) -> None:
 
 
 def _eval_row(auto_dir: str, monomer_name: str, params: dict,
-              e_mono: float, weights: dict, exec_gjf) -> float | None:
+              e_mono: float, weights: dict, exec_gjf,
+              monomer_dir: str | None = None) -> float | None:
     amber_dir = Path(auto_dir) / 'amber'
     total = 0.0
     for stype, w in weights.items():
-        out_name = exec_gjf(auto_dir, monomer_name, params, stype, isTest=False)
+        out_name = exec_gjf(auto_dir, monomer_name, params, stype, isTest=False,
+                            monomer_dir=monomer_dir)
         e_list = amber_get_E(str(amber_dir / out_name))
         if not e_list:
             return None
@@ -65,7 +67,8 @@ def _eval_row(auto_dir: str, monomer_name: str, params: dict,
     return total
 
 
-def run_eval(auto_dir: str, monomer_name: str, symmetry: str) -> None:
+def run_eval(auto_dir: str, monomer_name: str, symmetry: str,
+             monomer_dir: str | None = None) -> None:
     base = Path(auto_dir).resolve()
     _prepare_resources(base)
 
@@ -85,7 +88,8 @@ def run_eval(auto_dir: str, monomer_name: str, symmetry: str) -> None:
 
     results = []
     for idx, row in df.iterrows():
-        E = _eval_row(str(base), monomer_name, row.to_dict(), e_mono, weights, exec_gjf)
+        E = _eval_row(str(base), monomer_name, row.to_dict(), e_mono, weights, exec_gjf,
+                      monomer_dir=monomer_dir)
         results.append(round(E, 4) if E is not None else None)
         status = f"{E:.3f}" if E is not None else "FAILED"
         print(f"  [{idx+1}/{len(df)}] E = {status}")
@@ -102,5 +106,7 @@ if __name__ == '__main__':
     ap.add_argument('--auto-dir',     required=True)
     ap.add_argument('--monomer-name', required=True)
     ap.add_argument('--symmetry',     default='glide', choices=['glide', 'screw'])
+    ap.add_argument('--monomer-dir',  default=None,
+                    help='モノマー CSV/XYZ ディレクトリ（省略時はパッケージ付属の data/monomer）')
     args = ap.parse_args()
-    run_eval(args.auto_dir, args.monomer_name, args.symmetry)
+    run_eval(args.auto_dir, args.monomer_name, args.symmetry, monomer_dir=args.monomer_dir)

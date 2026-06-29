@@ -195,7 +195,8 @@ def get_one_exe(auto_dir: str, file_name: str, monomer_name: str) -> Tuple[str, 
 #     GaussView 用 XYZ
 # ==========================
 
-def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> List[str]:
+def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int,
+                 monomer_dir: str | None = None) -> List[str]:
     a   = params_dict.get('a',    0.0)
     bt1 = params_dict.get('bt1',  0.0)
     bt2 = params_dict.get('bt2',  0.0)
@@ -205,11 +206,11 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int) -> L
     alpha = params_dict.get('alpha', 0.0)
     phi = params_dict.get('phi',  0.0)
 
-    mon_i  = place_monomer(monomer_name, 0,     0,    0,   phi,  alpha,  beta)
-    mon_p1 = place_monomer(monomer_name, a,     0,    0,   phi,  alpha,  beta)
-    mon_p2 = place_monomer(monomer_name, 0,     b,    0,   phi,  alpha,  beta)
-    mon_t1 = place_monomer(monomer_name, a/2,   bt1,  z,   phi, -alpha,  beta)
-    mon_t3 = place_monomer(monomer_name, a/2,  -bt2,  z,   phi, -alpha,  beta)
+    mon_i  = place_monomer(monomer_name, 0,     0,    0,   phi,  alpha,  beta, monomer_dir=monomer_dir)
+    mon_p1 = place_monomer(monomer_name, a,     0,    0,   phi,  alpha,  beta, monomer_dir=monomer_dir)
+    mon_p2 = place_monomer(monomer_name, 0,     b,    0,   phi,  alpha,  beta, monomer_dir=monomer_dir)
+    mon_t1 = place_monomer(monomer_name, a/2,   bt1,  z,   phi, -alpha,  beta, monomer_dir=monomer_dir)
+    mon_t3 = place_monomer(monomer_name, a/2,  -bt2,  z,   phi, -alpha,  beta, monomer_dir=monomer_dir)
 
     if structure_type == 1:
         arr = np.concatenate([mon_i, mon_p1], axis=0)
@@ -254,7 +255,8 @@ def get_file_name_from_dict(monomer_name: str, params_dict: dict, structure_type
         name += f"_{key}_{val}"
     return name + f'_{structure_type}.mol2'
 
-def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int) -> str:
+def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int,
+                 monomer_dir: str | None = None) -> str:
     a   = params_dict.get('a',    0.0)
     bt1 = params_dict.get('bt1',  0.0)
     bt2 = params_dict.get('bt2',  0.0)
@@ -264,11 +266,11 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     alpha = params_dict.get('alpha', 0.0)
     phi = params_dict.get('phi',  0.0)
 
-    mon_i  = place_monomer(monomer_name, 0,    0,    0,   phi,  alpha,  beta)
-    mon_p1 = place_monomer(monomer_name, a,    0,    0,   phi,  alpha,  beta)
-    mon_p2 = place_monomer(monomer_name, 0,    b,    0,   phi,  alpha,  beta)
-    mon_t1 = place_monomer(monomer_name, a/2,  bt1,  z,   phi, -alpha,  beta)
-    mon_t3 = place_monomer(monomer_name, a/2, -bt2,  z,   phi, -alpha,  beta)
+    mon_i  = place_monomer(monomer_name, 0,    0,    0,   phi,  alpha,  beta, monomer_dir=monomer_dir)
+    mon_p1 = place_monomer(monomer_name, a,    0,    0,   phi,  alpha,  beta, monomer_dir=monomer_dir)
+    mon_p2 = place_monomer(monomer_name, 0,    b,    0,   phi,  alpha,  beta, monomer_dir=monomer_dir)
+    mon_t1 = place_monomer(monomer_name, a/2,  bt1,  z,   phi, -alpha,  beta, monomer_dir=monomer_dir)
+    mon_t3 = place_monomer(monomer_name, a/2, -bt2,  z,   phi, -alpha,  beta, monomer_dir=monomer_dir)
 
     if structure_type == 1:
         dimer = np.concatenate([mon_i, mon_p1], axis=0)
@@ -296,14 +298,15 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
 #     実行ラッパ
 # ==========================
 
-def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int, isTest: bool = True) -> str:
+def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int,
+             isTest: bool = True, monomer_dir: str | None = None) -> str:
     gv_dir = os.path.join(auto_dir, 'gaussview')
     os.makedirs(gv_dir, exist_ok=True)
     xyzfile_name = make_xyz(monomer_name, params_dict, structure_type)
     with open(os.path.join(gv_dir, xyzfile_name), 'w') as f:
-        f.writelines(make_xyzfile(monomer_name, params_dict, structure_type))
+        f.writelines(make_xyzfile(monomer_name, params_dict, structure_type, monomer_dir=monomer_dir))
 
-    file_name = make_gjf_xyz(auto_dir, monomer_name, params_dict, structure_type)
+    file_name = make_gjf_xyz(auto_dir, monomer_name, params_dict, structure_type, monomer_dir=monomer_dir)
     file_job, out_name = get_one_exe(auto_dir, file_name, monomer_name)
 
     if not isTest:

@@ -38,7 +38,7 @@ def _n_splits(df: pd.DataFrame, is_test: bool) -> int:
 
 
 def _submit_jobs(auto_dir: Path, monomer_name: str, symmetry: str,
-                 is_test: bool) -> list[Path]:
+                 is_test: bool, monomer_dir: str | None = None) -> list[Path]:
     df_init = pd.read_csv(auto_dir / 'step1_init_params.csv')
     n = _n_splits(df_init, is_test)
     chunks = [c for c in np.array_split(df_init, n) if not c.empty]
@@ -61,11 +61,13 @@ def _submit_jobs(auto_dir: Path, monomer_name: str, symmetry: str,
         qname, qi, num_nodes = wait_for_free_node(prefer_queue=prefer_queue)
         prefer_queue = qname
 
+        monomer_dir_opt = f" --monomer-dir {monomer_dir}" if monomer_dir else ""
         cmd = (
             f"python -m auto_opt.amber.eval_vdw_grid "
             f"--auto-dir {split_dir} "
             f"--monomer-name {monomer_name} "
             f"--symmetry {symmetry}"
+            f"{monomer_dir_opt}"
         )
         job_sh = make_job_script(
             job_name=f'eval_{i}',
@@ -116,6 +118,8 @@ def main() -> None:
     ap.add_argument('--auto-dir',     required=True)
     ap.add_argument('--monomer-name', required=True)
     ap.add_argument('--symmetry',     default='glide', choices=['glide', 'screw'])
+    ap.add_argument('--monomer-dir',  default=None,
+                    help='モノマー CSV/XYZ ディレクトリ（省略時はパッケージ付属の data/monomer）')
     ap.add_argument('--isTest',       action='store_true',
                     help='ジョブスクリプトを生成するが qsub は実行しない')
     ap.add_argument('--poll',         type=int, default=30,
@@ -123,7 +127,8 @@ def main() -> None:
     args = ap.parse_args()
 
     auto_dir = Path(args.auto_dir).resolve()
-    split_dirs = _submit_jobs(auto_dir, args.monomer_name, args.symmetry, args.isTest)
+    split_dirs = _submit_jobs(auto_dir, args.monomer_name, args.symmetry, args.isTest,
+                              monomer_dir=args.monomer_dir)
 
     if not args.isTest:
         _wait_and_merge(auto_dir, split_dirs, poll=args.poll)
