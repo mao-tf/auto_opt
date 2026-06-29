@@ -32,19 +32,28 @@ _MONOMER_DIR = Path(__file__).resolve().parents[3] / "data" / "monomer"
 
 
 def _load_symbols(monomer_name: str, monomer_dir: str) -> list[str]:
-    """モノマーの元素記号リストを返す。.xyz 優先、なければ R2atom。"""
+    """モノマーの元素記号リストを返す。.xyz 優先、なければ CSV の R 列を使用。"""
     xyz_path = Path(monomer_dir) / f"{monomer_name}.xyz"
     csv_path = Path(monomer_dir) / f"{monomer_name}.csv"
-
-    df = pd.read_csv(csv_path)
-    n = len(df)
 
     if xyz_path.exists():
         lines = xyz_path.read_text().splitlines()
         syms = [ln.split()[0] for ln in lines[2:] if ln.strip()]
-        if len(syms) == n:
-            return syms
+        if syms:
+            if csv_path.exists():
+                n = len(pd.read_csv(csv_path))
+                if len(syms) == n:
+                    return syms
+            else:
+                return syms
 
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"{monomer_name}.csv が見つかりません: {csv_path}\n"
+            "HPC からモノマーデータ (.xyz, .csv) をダウンロードしてください。"
+        )
+
+    df = pd.read_csv(csv_path)
     return [R2atom(r) for r in df['R'].to_numpy(dtype=float)]
 
 
