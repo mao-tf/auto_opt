@@ -488,7 +488,6 @@ pip install paramiko
 | ✅ | 高 | **セットアップ〜モノマー前処理の動作確認** |
 | 🔲 | 中 | `--monomer-dir` を amber/stacking 全スクリプトに通す（`data_dir` 対応の完成） |
 | ✅ | 高 | **VdW グリッド力場1点評価の動作確認**（`job_eval_grid.py` → Tab 1 マップ品質確認） |
-| 🔲 | 高 | `run.py` から `job_phi.py` / `job_screw_phi.py` へ `amber.num_nodes` を渡す（現状は run_config.yaml に書いても無視される） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
 | 🔲 | 中 | **SSH 連携機能の実装**（ローカル作業ディレクトリ指定・ファイル自動授受・HPC コマンド実行・進捗表示） |
 | 🔲 | 中 | **実行環境の柔軟化**（VdW/Amber 各ステップをローカルor HPC から選択。`~/.auto_opt.yaml` に `execution:` セクション追加） |
