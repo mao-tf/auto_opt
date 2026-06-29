@@ -1,15 +1,32 @@
 monomer: BTBT
 symmetry: glide
-auto_dir: runs/BTBT_glide_bstack_test
+auto_dir: /home/user/auto_opt_work/runs/BTBT_glide_bstack
+
+# モノマーファイルと計算データの置き場所
+data_dir:    /home/user/auto_opt_work/data
+monomer_xyz: /home/user/auto_opt_work/data/monomer/BTBT_raw.xyz
+
+charge: 0
+mult:   1
 
 # b-stack のみを Amber 最適化の初期点として使う
 vdw_select: b-stack
 
 parameters:
-  alpha: {min: 25, max: 25, step: 1}
-  phi:   {min: -10, max: 10, step: 2}
-  z:     {min: -1.0, max: 1.0, step: 0.2}
-  theta_c_step: 5
+  z:
+    min: -1.0
+    max:  1.0
+    step: 0.2
+
+  alpha:
+    min: 25.0
+    max: 25.0
+    step: 1.0
+
+  phi:
+    min: -10.0
+    max:  10.0
+    step:  2.0
 
 amber:
   num_nodes: 38
