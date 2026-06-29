@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 import argparse
+import shutil
 import subprocess
 import sys
 import time
@@ -33,7 +34,7 @@ import pandas as pd
 import yaml
 
 # 実行ステップの順序
-STEPS = ['monomer', 'vdw', 'amber', 'collect']
+STEPS = ['monomer', 'vdw', 'amber', 'collect', 'stacking', 'merge']
 
 # デフォルト data ディレクトリ（パッケージ相対・後方互換用）
 _DATA_DIR    = Path(__file__).resolve().parents[2] / "data"
@@ -180,26 +181,13 @@ def run_pipeline(
         )
 
         if symmetry == 'glide':
-            theta_step = str(params.get('theta_c_step', 5))
+            raw_select = config.get('vdw_select', 'all')
+            vdw_select = [raw_select] if isinstance(raw_select, str) else list(raw_select)
             _run([
                 'auto_opt.vdw.sweep_phi',
                 '--monomer-path', monomer_path,
                 '--out-dir', auto_dir,
                 *common,
-                '--theta-step', theta_step,
-            ], dry_run=dry_run)
-
-            print("\n" + "-" * 60)
-            print("  Step 2: 初期点抽出  [glide のみ]")
-            print("-" * 60)
-            vdw_csv    = str(Path(auto_dir) / f"vdW_r_contact_{monomer}.csv")
-            init_csv   = str(Path(auto_dir) / "step1_init_params.csv")
-            raw_select = config.get('vdw_select', 'all')
-            vdw_select = [raw_select] if isinstance(raw_select, str) else list(raw_select)
-            _run([
-                'auto_opt.vdw.extract_init_phi',
-                '--vdw-csv', vdw_csv,
-                '--out', init_csv,
                 '--select', *vdw_select,
             ], dry_run=dry_run)
 
@@ -264,9 +252,85 @@ def run_pipeline(
         print(f"  streamlit run src/auto_opt/app.py")
 
 
+    # ── Step 6: スタッキング計算 ──────────────────────────────────────
+    if 'stacking' in steps_to_run:
+        print("\n" + "=" * 60)
+        print(f"  Step 6: スタッキング計算  [{symmetry}]")
+        print("=" * 60)
+
+        stacking_dir = Path(config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking")))
+        stacking_dir.mkdir(parents=True, exist_ok=True)
+
+        # candidates CSV: run_config.yaml で指定するか、filtered_step1.csv を使う
+        cands_csv = Path(config.get('stacking_candidates', str(Path(auto_dir) / 'filtered_step1.csv')))
+        if not cands_csv.exists():
+            raise FileNotFoundError(
+                f"[stacking] 候補 CSV が見つかりません: {cands_csv}\n"
+                f"  app.py の「層内最適化」タブで候補を選んで CSV をダウンロードし、\n"
+                f"  run_config.yaml に stacking_candidates: <path> を追加してください。"
+            )
+
+        # VdW スキャンで cx/cy/cz の初期値を生成（Amber 不要・ローカルで実行可）
+        init_csv = stacking_dir / 'step1_init_params.csv'
+        if not init_csv.exists():
+            print(f"[stacking] VdW スキャンで初期値を生成: {cands_csv.name} → step1_init_params.csv")
+            _run([
+                'auto_opt.stacking.sweep_stacking_vdw',
+                '--candidates', str(cands_csv),
+                '--monomer', monomer,
+                '--out-dir', str(stacking_dir),
+                '--symmetry', symmetry,
+            ], dry_run=dry_run)
+        else:
+            print(f"[stacking] step1_init_params.csv が既に存在します。VdW スキャンをスキップします。")
+
+        _run([
+            'auto_opt.stacking.job_stacking',
+            '--auto-dir', str(stacking_dir),
+            '--monomer-name', monomer,
+            '--symmetry', symmetry,
+        ], dry_run=dry_run)
+
+        if 'merge' in steps_to_run and not dry_run:
+            from auto_opt.cluster import load_env, get_my_job_count
+            poll = load_env().get('poll_interval', 60)
+            print(f"\n[auto_opt] スタッキングジョブ投入完了。終了を待機中... ({poll}秒ごとに確認)")
+            while True:
+                n = get_my_job_count()
+                if n == 0:
+                    print("[auto_opt] 全ジョブ完了。")
+                    break
+                print(f"  残りジョブ数: {n}  ({poll}秒後に再確認...)")
+                time.sleep(poll)
+        else:
+            print(f"\n[auto_opt] ジョブ投入完了。完了後に merge を実行してください:")
+            print(f"  python -m auto_opt.run --config <config> --start-from merge")
+
+    # ── Step 7: スタッキング結果マージ ────────────────────────────────
+    if 'merge' in steps_to_run:
+        print("\n" + "=" * 60)
+        print("  Step 7: スタッキング結果マージ")
+        print("=" * 60)
+
+        stacking_dir = Path(config.get('stacking_dir', str(Path(auto_dir).parent / f"{Path(auto_dir).name}_stacking")))
+        mono_dir, _ = _resolve_data_dirs(config)
+
+        _run([
+            'auto_opt.stacking.merge_results',
+            '--auto-dir', str(stacking_dir),
+            '--monomer-name', monomer,
+            '--data-dir', str(mono_dir.parent),
+        ], dry_run=dry_run)
+
+        out = stacking_dir / 'stacking_results.csv'
+        print(f"\n[auto_opt] 完了。ローカルにダウンロードして Streamlit で確認:")
+        print(f"  scp <server>:{out.resolve()} ~/Downloads/stacking_results.csv")
+        print(f"  streamlit run src/auto_opt/app.py")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="run_config.yaml に従い VdW → Amber → 局所最小収集 を順番に実行する"
+        description="run_config.yaml に従い VdW → Amber → スタッキング を順番に実行する"
     )
     ap.add_argument('--config',      required=True,
                     help='設定ファイルのパス (run_config.yaml)')

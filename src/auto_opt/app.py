@@ -17,7 +17,8 @@ import plotly.graph_objects as go
 import streamlit as st
 import py3Dmol
 
-from auto_opt.plot.make_cluster_xyz import make_cluster_xyz
+from auto_opt.plot.make_cluster_xyz import make_cluster_xyz, _load_symbols, _xyz_block, _cluster_screw, _cluster_glide
+from auto_opt.utils import place_monomer
 
 _MONOMER_DIR = str(Path(__file__).resolve().parents[2] / "data" / "monomer")
 _SEC_PER_CALC = 0.02   # sander 1計算あたりの実測値 (秒)
@@ -26,12 +27,39 @@ _N_DIMERS = {'glide': 3, 'screw': 4}
 st.set_page_config(page_title="auto_opt viewer", layout="wide")
 st.title("auto_opt — 可視化 UI")
 
+# ペンディング中のモノマー名をウィジェット描画前にセット（st.rerun()後の2周目で反映）
+if "_pending_monomer_name" in st.session_state:
+    st.session_state["monomer_name"] = st.session_state.pop("_pending_monomer_name")
+
 # ─── サイドバー: 共通設定 ───────────────────────────────────
 with st.sidebar:
     st.header("共通設定")
-    monomer_name = st.text_input("モノマー名", value="BTBT")
-    monomer_dir  = st.text_input("モノマーデータディレクトリ", value=_MONOMER_DIR)
-    mol_style    = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
+    monomer_name = st.text_input(
+        "モノマー名",
+        value=st.session_state.get("monomer_name", "BTBT"),
+        key="monomer_name",
+    )
+    mol_style = st.selectbox("表示スタイル", ["Capped sticks", "Space fill"])
+
+# local_work_dir はセットアップタブで定義し、他タブで参照できるよう先に初期化
+local_work_dir: str = st.session_state.get("local_work_dir", "")
+
+# モノマーデータディレクトリ: local_work_dir/data/monomer を優先、なければパッケージ付属
+monomer_dir = (
+    str(Path(local_work_dir) / "data" / "monomer")
+    if local_work_dir.strip()
+    else _MONOMER_DIR
+)
+
+
+def _save_file(content: str, path: Path) -> None:
+    """ファイルを書き込み、成功/失敗を st.toast で通知する。"""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        st.toast(f"保存しました: {path}", icon="✅")
+    except Exception as e:
+        st.toast(f"保存失敗: {e}", icon="❌")
 
 # ─── ヘルパー: 3D 表示 ─────────────────────────────────────
 def _xyz_filename(row: pd.Series, sym: str) -> str:
@@ -42,6 +70,70 @@ def _xyz_filename(row: pd.Series, sym: str) -> str:
             val = float(row[col])
             parts.append(f"{col}{val:{fmt}}")
     return "_".join(parts) + ".xyz"
+
+
+def make_stacking_xyz(row: pd.Series, monomer_name: str, sym: str,
+                      monomer_dir: str) -> str:
+    """層クラスター(9分子) + スタッキング分子(2分子) の XYZ を返す。"""
+    alpha1 = float(row.get('alpha1', row.get('alpha', 0.0)))
+    alpha2 = float(row.get('alpha2', alpha1))
+    beta   = float(row.get('beta',  0.0))
+    phi    = float(row.get('phi',   0.0))
+    z      = float(row.get('z',     0.0))
+    a      = float(row.get('a',     0.0))
+    bt1    = float(row.get('bt1',   0.0))
+    bt2    = float(row.get('bt2',   0.0))
+    b      = bt1 + bt2 if bt1 + bt2 > 0 else float(row.get('b', 0.0))
+    cx     = float(row.get('cx',    0.0))
+    cy     = float(row.get('cy',    0.0))
+    cz     = float(row.get('cz',    0.0))
+
+    syms = _load_symbols(monomer_name, monomer_dir)
+
+    # 層クラスター（alpha1 で生成）
+    if sym == 'screw':
+        layer_syms, layer_xyz = _cluster_screw(
+            monomer_name, a, b, bt1, bt2, z, alpha1, beta, phi, monomer_dir
+        )
+    else:
+        layer_syms, layer_xyz = _cluster_glide(
+            monomer_name, a, b, z, alpha1, phi, monomer_dir
+        )
+
+    # スタッキング分子（alpha2 で生成・make_io_stacking と同じ配置）
+    stack_syms:  list[str]        = []
+    stack_parts: list[np.ndarray] = []
+
+    if sym == 'screw':
+        # c: (cx, cy, cz, +alpha2),  c_: (a/2+cx, bt1+cy, cz+z, -alpha2)
+        for tx, ty, tz, al in [
+            (cx,          cy,       cz,     alpha2),
+            (a/2 + cx,    bt1 + cy, cz + z, -alpha2),
+        ]:
+            arr = place_monomer(monomer_name, tx, ty, tz, phi, al, beta,
+                                monomer_dir=monomer_dir)
+            stack_syms.extend(syms)
+            stack_parts.append(arr[:, :3])
+    else:
+        # c: (cx, cy, cz, +alpha2),  c_: (cx, cy, cz, -alpha2)
+        for tx, ty, tz, al in [
+            (cx, cy, cz,  alpha2),
+            (cx, cy, cz, -alpha2),
+        ]:
+            arr = place_monomer(monomer_name, tx, ty, tz, phi, al,
+                                monomer_dir=monomer_dir)
+            stack_syms.extend(syms)
+            stack_parts.append(arr[:, :3])
+
+    stack_xyz = np.vstack(stack_parts)
+
+    all_syms  = layer_syms + stack_syms
+    all_xyz   = np.vstack([layer_xyz, stack_xyz])
+    n_atoms   = len(all_syms)
+    comment   = (f"{monomer_name} {sym} stacking | "
+                 f"alpha1={alpha1:.1f} alpha2={alpha2:.1f} beta={beta:.1f} phi={phi:.1f} z={z:.3f} "
+                 f"cx={cx:.2f} cy={cy:.2f} cz={cz:.2f}")
+    return f"{n_atoms}\n{comment}\n" + _xyz_block(all_syms, all_xyz)
 
 
 def _render_3d(row: pd.Series, sym: str, *, key_suffix: str = "") -> None:
@@ -163,17 +255,68 @@ tab_setup, tab_vdw, tab_layer, tab_stack, tab_param = st.tabs(
 #  Tab 0: セットアップ
 # ══════════════════════════════════════════════════════════
 with tab_setup:
-    # ─── Step 1: モノマー ────────────────────────────────
-    st.subheader("Step 1: モノマー")
+    # ─── ローカル作業ディレクトリ ────────────────────────
+    st.subheader("ローカル作業ディレクトリ")
     st.caption(
-        "左サイドバーの「モノマー名」が全ファイルのキーになります（例: BTBT）。"
-        " ここではモノマーの性質と対称性を設定します。"
+        "この計算ランのローカル保存先を設定します。"
+        " run_config.yaml の保存・CSV の自動読み込み・SCP コマンドの生成に使われます。"
     )
-    local_xyz = st.text_input(
-        "ローカルの xyz ファイルパス（前処理前の粗い構造）",
-        placeholder="/Users/you/Documents/my_molecule.xyz",
-        key="setup_local_xyz",
+    local_work_dir = st.text_input(
+        "ローカル作業ディレクトリ（絶対パス）",
+        placeholder=str(Path.home() / "Working" / "auto_opt" / "runs" / "run_name"),
+        key="local_work_dir",
     )
+    st.divider()
+
+    # ─── Step 1: モノマー ────────────────────────────────
+    st.subheader("Step 1: モノマー xyz をドロップ")
+    st.caption(
+        "Gaussian で最適化する前の粗い構造ファイル（.xyz）をドロップしてください。"
+        " ファイル名からモノマー名を自動検出します。"
+    )
+    uploaded_xyz = st.file_uploader(
+        "xyz ファイルをドロップ",
+        type=["xyz"],
+        key="setup_xyz_upload",
+        label_visibility="collapsed",
+    )
+
+    _lwd_mono = Path(local_work_dir) / "data" / "monomer" if local_work_dir.strip() else None
+
+    if uploaded_xyz is not None:
+        _stem = Path(uploaded_xyz.name).stem
+        import re as _re
+        _auto_name = _re.sub(r'[_-](raw|pre|input|pre_opt)$', '', _stem)
+
+        _name_col, _mode_col = st.columns([2, 3])
+        _name_mode = _mode_col.radio(
+            "モノマー名",
+            [f"自動（{_auto_name}）", "手動で指定"],
+            horizontal=True,
+            key="setup_name_mode",
+            label_visibility="collapsed",
+        )
+        if "手動" in _name_mode:
+            _resolved_name = _name_col.text_input(
+                "モノマー名", value=_auto_name, key="setup_monomer_name_manual"
+            )
+        else:
+            _resolved_name = _auto_name
+            _name_col.markdown(f"**モノマー名:** `{_auto_name}`")
+
+        if _lwd_mono:
+            _save_xyz_path = _lwd_mono / f"{_resolved_name}_raw.xyz"
+            if st.button(f"xyz をローカルに保存  →  {_save_xyz_path}", key="save_raw_xyz"):
+                _save_file(uploaded_xyz.getvalue().decode("utf-8"), _save_xyz_path)
+                st.session_state["_pending_monomer_name"] = _resolved_name
+                st.rerun()
+        else:
+            st.caption("💡 ローカル作業ディレクトリを設定すると保存ボタンが現れます")
+
+        _local_xyz_out = str(_lwd_mono / f"{_resolved_name}_raw.xyz") if _lwd_mono else f"<local>/{_resolved_name}_raw.xyz"
+    else:
+        _resolved_name = monomer_name
+        _local_xyz_out = f"<local>/{monomer_name}_raw.xyz"
 
     c1, c2, c3 = st.columns(3)
     setup_sym    = c1.selectbox("対称性", ["glide", "screw"], key="setup_sym")
@@ -248,19 +391,15 @@ with tab_setup:
         setup_param_cfg[_axis] = {"min": _pmin, "max": _pmax, "step": _pstep}
 
     if setup_sym == "glide":
-        theta_c_step_setup = st.number_input(
-            "theta_c_step (°)", value=5.0, min_value=1.0, key="setup_theta_c_step"
-        )
         setup_vdw_select = st.multiselect(
             "vdw_select",
-            ["all", "a-stack", "b-stack", "local_min"],
+            ["all", "a-stack", "b-stack"],
             default=["a-stack", "b-stack"],
             key="setup_vdw_select",
         )
         if not setup_vdw_select:
             setup_vdw_select = ["all"]
     else:
-        theta_c_step_setup = 5.0
         setup_vdw_select = ["all"]
 
     setup_n_nodes = st.number_input(
@@ -272,7 +411,6 @@ with tab_setup:
     _hpc_workdir_out = hpc_workdir.strip() or f"/path/to/{monomer_name}"
     _auto_dir_out    = f"{_hpc_workdir_out}/runs/{monomer_name}_{setup_sym}"
     _mono_xyz_hpc    = f"{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz"
-    _local_xyz_out   = local_xyz.strip()   or f"/path/to/{monomer_name}_raw.xyz"
 
     # ─── 生成物 ──────────────────────────────────────────
     st.divider()
@@ -317,13 +455,8 @@ with tab_setup:
     )
     with st.expander("~/.auto_opt.yaml", expanded=True):
         st.code(_auto_opt_yaml, language="yaml")
-        st.download_button(
-            label="auto_opt.yaml をダウンロード",
-            data=_auto_opt_yaml,
-            file_name="auto_opt.yaml",
-            mime="text/plain",
-            key="dl_auto_opt_yaml",
-        )
+        if st.button("~/.auto_opt.yaml に保存", key="save_auto_opt_yaml"):
+            _save_file(_auto_opt_yaml, Path.home() / ".auto_opt.yaml")
 
     # run_config.yaml
     _params_yaml = ""
@@ -335,9 +468,6 @@ with tab_setup:
             f"    max: {_cfg['max']}\n"
             f"    step: {_cfg['step']}\n\n"
         )
-    if setup_sym == "glide":
-        _params_yaml += f"  theta_c_step: {theta_c_step_setup}\n"
-
     if len(setup_vdw_select) == 1:
         _vdw_select_yaml = setup_vdw_select[0]
     else:
@@ -358,32 +488,42 @@ with tab_setup:
     )
     with st.expander("run_config.yaml", expanded=True):
         st.code(_run_config_setup, language="yaml")
-        st.download_button(
-            label="run_config.yaml をダウンロード",
-            data=_run_config_setup,
-            file_name="run_config.yaml",
-            mime="text/plain",
-            key="dl_run_config_setup",
-        )
+        _lwd_setup = Path(local_work_dir) if local_work_dir.strip() else None
+        if _lwd_setup:
+            if st.button("run_config.yaml をローカルに保存", key="save_run_config_setup"):
+                _save_file(_run_config_setup, _lwd_setup / "run_config.yaml")
+        else:
+            st.caption("💡 サイドバーでローカル作業ディレクトリを設定すると直接保存できます")
 
     # コマンド
     st.subheader("コマンド")
-    st.caption("1. ローカルで実行 — スパコンへファイル転送")
+    _lwd_str = local_work_dir.strip() or "<ローカル作業ディレクトリ>"
+    _run_config_local = f"{_lwd_str}/run_config.yaml"
+    _lwd_mono_str = f"{_lwd_str}/data/monomer"
+
+    st.caption("1. ローカル → HPC へ転送")
     st.code(
-        f"# モノマー xyz を転送（ファイル名は {monomer_name}_raw.xyz に変換されます）\n"
+        f"# モノマー xyz を転送\n"
         f"scp {_local_xyz_out} \\\n"
-        f"    {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/{monomer_name}_raw.xyz\n\n"
+        f"    {_hpc_host_out}:{_mono_xyz_hpc}\n\n"
         f"# 設定ファイルを転送\n"
-        f"scp run_config.yaml {_hpc_host_out}:{_hpc_workdir_out}/\n\n"
+        f"scp {_run_config_local} {_hpc_host_out}:{_auto_dir_out}/\n\n"
         f"# 環境設定（初回のみ）\n"
-        f"scp auto_opt.yaml   {_hpc_host_out}:~/.auto_opt.yaml",
+        f"scp ~/.auto_opt.yaml {_hpc_host_out}:~/.auto_opt.yaml",
         language="bash",
     )
-    st.caption("2. スパコン上で実行")
+    st.caption("2. HPC 上で実行（モノマー最適化 → VdW スウィープ）")
     st.code(
-        f"cd {_hpc_workdir_out}\n"
-        f"python -m auto_opt.run --config run_config.yaml"
+        f"# auto_opt は pip インストール済みなのでどこからでも実行可\n"
+        f"python -m auto_opt.run --config {_auto_dir_out}/run_config.yaml"
         f" --start-from monomer --stop-after vdw",
+        language="bash",
+    )
+    st.caption("3. HPC → ローカル へ結果を取得（最適化後モノマーファイル）")
+    st.code(
+        f"mkdir -p {_lwd_mono_str}\n"
+        f"scp {_hpc_host_out}:{_hpc_workdir_out}/data/monomer/{monomer_name}.{{xyz,mol2,csv}} \\\n"
+        f"    {_lwd_mono_str}/",
         language="bash",
     )
 
@@ -392,14 +532,24 @@ with tab_setup:
 #  Tab 1: VdW スキャン
 # ══════════════════════════════════════════════════════════
 with tab_vdw:
+    _vdw_local_path = (
+        Path(local_work_dir) / "step1_init_params.csv"
+        if local_work_dir.strip() else None
+    )
+    _vdw_local_exists = _vdw_local_path is not None and _vdw_local_path.exists()
+
+    if _vdw_local_exists:
+        st.caption(f"📂 {_vdw_local_path} から自動読み込み")
     vdw_uploaded = st.file_uploader(
-        "step1_init_params.csv (VdW スキャン出力)", type="csv", key="vdw_csv"
+        "step1_init_params.csv (VdW スキャン出力) — ローカルパスが設定されていれば自動読み込み",
+        type="csv", key="vdw_csv"
     )
 
-    if vdw_uploaded is None:
-        st.info("step1_init_params.csv をアップロードしてください。")
+    vdw_source = vdw_uploaded or (_vdw_local_path if _vdw_local_exists else None)
+    if vdw_source is None:
+        st.info("step1_init_params.csv をアップロードするか、サイドバーでローカル作業ディレクトリを設定してください。")
     else:
-        vdw_df = pd.read_csv(vdw_uploaded)
+        vdw_df = pd.read_csv(vdw_source)
         vdw_sym = "screw" if "beta" in vdw_df.columns else "glide"
 
         # a*b 列を追加
@@ -432,10 +582,11 @@ with tab_vdw:
         # structure_type フィルタ
         if "structure_type" in vdw_df.columns:
             all_types = sorted(vdw_df["structure_type"].dropna().unique())
-            sel_types = st.multiselect(
-                "structure_type フィルタ", all_types, default=all_types, key="vdw_types"
-            )
-            vdw_df = vdw_df[vdw_df["structure_type"].isin(sel_types)]
+            if len(all_types) > 1:
+                sel_type = st.radio(
+                    "structure_type", all_types, horizontal=True, key="vdw_types"
+                )
+                vdw_df = vdw_df[vdw_df["structure_type"] == sel_type]
 
         # 固定パラメータでフィルタ
         vdw_fixed = vdw_df.copy()
@@ -571,22 +722,17 @@ with tab_vdw:
                                              key=f"p_{axis}_step")
                 param_cfg[axis] = {"min": p_min, "max": p_max, "step": p_step}
 
-            # glide のみ: theta_c_step と vdw_select
+            # glide のみ: vdw_select
             if vdw_sym == "glide":
-                theta_c_step = st.number_input(
-                    "theta_c_step (VdW 接触角刻み°)", value=5.0, min_value=1.0,
-                    key="p_theta_c_step"
-                )
                 vdw_select = st.multiselect(
                     "抽出する構造タイプ (vdw_select)",
-                    ["all", "a-stack", "b-stack", "local_min"],
+                    ["all", "a-stack", "b-stack"],
                     default=["a-stack", "b-stack"],
                     key="p_vdw_select",
                 )
                 if not vdw_select:
                     st.warning("少なくとも1つ選択してください。")
                     vdw_select = ["all"]
-                param_cfg["theta_c_step"] = theta_c_step
             else:
                 vdw_select = ["all"]
 
@@ -617,9 +763,6 @@ with tab_vdw:
                     f"    max: {cfg['max']}\n"
                     f"    step: {cfg['step']}\n\n"
                 )
-            if vdw_sym == "glide":
-                params_yaml += f"  theta_c_step: {param_cfg['theta_c_step']}\n"
-
             if len(vdw_select) == 1:
                 vdw_select_yaml = vdw_select[0]
             else:
@@ -635,31 +778,43 @@ with tab_vdw:
                 f"  num_nodes: {int(n_nodes)}\n"
             )
 
-            st.download_button(
-                label="run_config.yaml をダウンロード",
-                data=run_config_yaml,
-                file_name="run_config.yaml",
-                mime="text/plain",
-                key="dl_run_config",
-            )
-
-            st.code(
-                f"python -m auto_opt.run --config run_config.yaml",
-                language="bash",
-            )
+            st.code(run_config_yaml, language="yaml")
+            _lwd_vdw = Path(local_work_dir) if local_work_dir.strip() else None
+            if _lwd_vdw:
+                if st.button("run_config.yaml をローカルに保存", key="save_run_config_vdw"):
+                    _save_file(run_config_yaml, _lwd_vdw / "run_config.yaml")
+                _hpc_host_v = st.session_state.get("setup_hpc_host", "").strip() or "<user@hpc>"
+                st.code(
+                    f"scp {_lwd_vdw}/run_config.yaml {_hpc_host_v}:{auto_dir_out}/\n"
+                    f"ssh {_hpc_host_v} 'cd {auto_dir_out} && "
+                    f"nohup python -m auto_opt.run --config run_config.yaml > run.log 2>&1 &'",
+                    language="bash",
+                )
+            else:
+                st.caption("💡 サイドバーでローカル作業ディレクトリを設定するとSCPコマンドが表示されます")
 
 
 # ══════════════════════════════════════════════════════════
 #  Tab 2: 層内最適化
 # ══════════════════════════════════════════════════════════
 with tab_layer:
-    layer_uploaded = st.file_uploader(
-        "filtered_step1.csv (Amber 最適化結果)", type="csv", key="layer_csv"
+    _layer_local_path = (
+        Path(local_work_dir) / "filtered_step1.csv"
+        if local_work_dir.strip() else None
     )
-    if layer_uploaded is None:
-        st.info("filtered_step1.csv をアップロードしてください。")
+    _layer_local_exists = _layer_local_path is not None and _layer_local_path.exists()
+
+    if _layer_local_exists:
+        st.caption(f"📂 {_layer_local_path} から自動読み込み")
+    layer_uploaded = st.file_uploader(
+        "filtered_step1.csv (Amber 最適化結果) — ローカルパスが設定されていれば自動読み込み",
+        type="csv", key="layer_csv"
+    )
+    layer_source = layer_uploaded or (_layer_local_path if _layer_local_exists else None)
+    if layer_source is None:
+        st.info("filtered_step1.csv をアップロードするか、サイドバーでローカル作業ディレクトリを設定してください。")
     else:
-        df = pd.read_csv(layer_uploaded)
+        df = pd.read_csv(layer_source)
         sym = "screw" if "beta" in df.columns else "glide"
         axis_candidates = ["alpha", "phi", "z"] + (["beta"] if sym == "screw" else [])
         axis_candidates = [c for c in axis_candidates if c in df.columns]
@@ -931,33 +1086,99 @@ with tab_stack:
         st.info("stacking_results.csv をアップロードしてください。")
     else:
         df_sr2 = pd.read_csv(stack_uploaded2)
-        stack_axes = [c for c in ["cy", "cz", "phi", "z", "beta"] if c in df_sr2.columns]
+        stack_axes = [c for c in ["z", "phi", "beta", "cy", "cz"] if c in df_sr2.columns]
         if not stack_axes:
             stack_axes = [df_sr2.columns[0]]
         x_col_s2 = st.selectbox("X 軸", stack_axes, key="stack_x")
 
+        # X軸の全値に対して他の全変数でmin → 各X値で最安定の1点を取る
+        e_cols_avail = [c for c in ["E_layer", "E_stack", "E_total", "E_int"] if c in df_sr2.columns]
+        sort_col = next((c for c in ["E_total", "E_int"] if c in df_sr2.columns), e_cols_avail[0] if e_cols_avail else None)
+
+        if sort_col:
+            df_plot_base = (
+                df_sr2.groupby(x_col_s2, as_index=False)
+                .apply(lambda g: g.loc[g[sort_col].idxmin()])
+                .reset_index(drop=True)
+            )
+        else:
+            df_plot_base = df_sr2.groupby(x_col_s2, as_index=False).first()
+
+        # ─── グラフ ───────────────────────────────────────────
         fig_s2 = go.Figure()
-        for col, color, name in [
+        for col, color, label in [
             ("E_layer", "royalblue", "層内 E_layer"),
-            ("E_stack", "tomato",    "層間 E_stack"),
             ("E_total", "seagreen",  "合計 E_total"),
         ]:
-            if col in df_sr2.columns:
-                fig_s2.add_trace(go.Scatter(
-                    x=df_sr2[x_col_s2], y=df_sr2[col],
-                    mode="lines+markers", name=name,
-                    line=dict(color=color),
-                ))
+            if col not in df_plot_base.columns:
+                continue
+            y = df_plot_base[col]
+            fig_s2.add_trace(go.Scatter(
+                x=df_plot_base[x_col_s2], y=y - y.iloc[0],
+                mode="lines+markers", name=label, line=dict(color=color),
+            ))
+
+        # E_inter = 2 * E_stack（上下の層間を両方カウント）
+        e_inter_col = "E_stack" if "E_stack" in df_plot_base.columns else "E_int" if "E_int" in df_plot_base.columns else None
+        if e_inter_col:
+            y = df_plot_base[e_inter_col] * 2
+            fig_s2.add_trace(go.Scatter(
+                x=df_plot_base[x_col_s2], y=y - y.iloc[0],
+                mode="lines+markers", name="層間 E_inter (×2)", line=dict(color="tomato"),
+            ))
+
         fig_s2.update_layout(
             xaxis_title=x_col_s2,
-            yaxis_title="E (kcal/mol)",
+            yaxis_title="ΔE (kcal/mol, 相対)",
             margin=dict(l=20, r=20, t=30, b=20),
         )
         st.plotly_chart(fig_s2, use_container_width=True)
+
+        # ─── パラメータテーブル ───────────────────────────────
+        st.subheader("各点のパラメータ")
+        show_cols = [x_col_s2] + [
+            c for c in ["alpha1", "alpha2", "beta", "phi", "z", "a", "bt1", "bt2", "b",
+                        "cx", "cy", "cz", "E_layer", "E_stack", "E_total"]
+            if c in df_plot_base.columns and c != x_col_s2
+        ]
+        st.dataframe(
+            df_plot_base[show_cols].reset_index(drop=True),
+            use_container_width=True,
+        )
+
+        # ─── 3D 表示（行クリックで選択）──────────────────────
+        st.subheader("スタッキング 3D 表示")
+        best_col_s = next((c for c in ["E_total", "E_stack", "E_int"] if c in df_plot_base.columns), None)
+        if best_col_s:
+            x_vals   = sorted(df_plot_base[x_col_s2].unique())
+            sel_x    = st.select_slider(x_col_s2, options=x_vals,
+                                        value=df_plot_base.loc[df_plot_base[best_col_s].idxmin(), x_col_s2],
+                                        key="stack_3d_slider")
+            sel_row  = df_plot_base[np.isclose(df_plot_base[x_col_s2], sel_x, atol=1e-5)].iloc[0]
+            sym_stk  = "screw" if "beta" in df_sr2.columns else "glide"
+            try:
+                xyz_stk = make_stacking_xyz(sel_row, monomer_name, sym_stk, monomer_dir)
+                view_stk = py3Dmol.view(width=600, height=400)
+                view_stk.addModel(xyz_stk, "xyz")
+                if mol_style == "Space fill":
+                    view_stk.setStyle({}, {"sphere": {"scale": 1.0}})
+                else:
+                    view_stk.setStyle({}, {"stick": {"radius": 0.15}, "sphere": {"radius": 0.3}})
+                view_stk.setProjection("orthographic")
+                view_stk.zoomTo()
+                st.components.v1.html(view_stk._make_html(), height=420)
+                e_info = "  ".join(
+                    f"{c}={sel_row[c]:.3f}" for c in ["E_layer", "E_stack", "E_total"]
+                    if c in sel_row
+                )
+                st.caption(e_info)
+            except Exception as e:
+                st.error(f"3D 生成エラー: {e}")
+
         st.download_button(
-            label="スタッキング結果 CSV ダウンロード",
-            data=df_sr2.to_csv(index=False),
-            file_name="stacking_results.csv",
+            label="スタッキングサマリー CSV ダウンロード",
+            data=df_plot_base[show_cols].reset_index(drop=True).to_csv(index=False),
+            file_name=f"{monomer_name}_stacking_summary.csv",
             mime="text/csv",
             key="dl_stacking_results2",
         )
