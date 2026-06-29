@@ -514,7 +514,7 @@ with tab_setup:
     )
     st.caption("2. HPC 上で実行（モノマー最適化 → VdW スウィープ）")
     st.code(
-        f"cd {_hpc_workdir_out}\n"
+        f"# auto_opt は pip インストール済みなのでどこからでも実行可\n"
         f"python -m auto_opt.run --config {_auto_dir_out}/run_config.yaml"
         f" --start-from monomer --stop-after vdw",
         language="bash",
