@@ -501,6 +501,12 @@ with tab_setup:
     _run_config_local = f"{_lwd_str}/run_config.yaml"
     _lwd_mono_str = f"{_lwd_str}/data/monomer"
 
+    st.caption("0. HPC 側ディレクトリを作成（初回のみ）")
+    st.code(
+        f"ssh {_hpc_host_out} "
+        f"'mkdir -p {_hpc_workdir_out}/data/monomer {_auto_dir_out}'",
+        language="bash",
+    )
     st.caption("1. ローカル → HPC へ転送")
     st.code(
         f"# モノマー xyz を転送\n"
@@ -537,6 +543,14 @@ with tab_vdw:
         if local_work_dir.strip() else None
     )
     _vdw_local_exists = _vdw_local_path is not None and _vdw_local_path.exists()
+
+    with st.expander("HPC から結果を取得（step1_init_params.csv）"):
+        _lwd_vdw = local_work_dir.strip() or "<ローカル作業ディレクトリ>"
+        st.code(
+            f"scp {_hpc_host_out}:{_auto_dir_out}/step1_init_params.csv \\\n"
+            f"    {_lwd_vdw}/",
+            language="bash",
+        )
 
     if _vdw_local_exists:
         st.caption(f"📂 {_vdw_local_path} から自動読み込み")
@@ -803,6 +817,14 @@ with tab_layer:
         if local_work_dir.strip() else None
     )
     _layer_local_exists = _layer_local_path is not None and _layer_local_path.exists()
+
+    with st.expander("HPC から結果を取得（filtered_step1.csv）"):
+        _lwd_layer = local_work_dir.strip() or "<ローカル作業ディレクトリ>"
+        st.code(
+            f"scp {_hpc_host_out}:{_auto_dir_out}/filtered_step1.csv \\\n"
+            f"    {_lwd_layer}/",
+            language="bash",
+        )
 
     if _layer_local_exists:
         st.caption(f"📂 {_layer_local_path} から自動読み込み")
