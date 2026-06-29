@@ -162,19 +162,14 @@ python -m auto_opt.gaussian.pipeline_screw_phi \
 
 ## Visualization (Streamlit UI)
 
-Install the visualization dependencies (run locally, not on HPC):
+Run locally (not on HPC). Install visualization dependencies first:
 
 ```bash
 pip install -e ".[viz]"
-```
-
-Then launch the UI:
-
-```bash
 streamlit run src/auto_opt/app.py
 ```
 
-Open `http://localhost:8501` in your browser. Set the **local work directory** in the Setup tab to point to your working directory (outside the repository), then load HPC results via that path.
+A browser window opens automatically. Set the **local work directory** in the Setup tab to your working directory (outside the repository), then load HPC results via that path.
 
 Provides interactive heatmaps, 3D molecular cluster viewer, and candidate selection for stacking calculations.
 
