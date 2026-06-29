@@ -491,8 +491,10 @@ pip install paramiko
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
 | 🔲 | 中 | **SSH 連携機能の実装**（ローカル作業ディレクトリ指定・ファイル自動授受・HPC コマンド実行・進捗表示） |
 | 🔲 | 中 | **実行環境の柔軟化**（VdW/Amber 各ステップをローカルor HPC から選択。`~/.auto_opt.yaml` に `execution:` セクション追加） |
+| 🔲 | 中 | `run.py` から `job_phi.py` / `job_screw_phi.py` へ `amber.num_nodes` を渡す（現状は run_config.yaml に書いても無視される） |
 | 🔲 | 低 | HPC 可搬性対応（分子科学研究所 PBS/SLURM スケジューラー対応） |
 | 🔲 | 低 | ドキュメント整備（計算化学を知らない材料研究者向け README） |
+| 🔲 | 低 | **HPC シングルマシンモード**（SSH ポートフォワーディングで HPC 上の Streamlit を操作。ローカル/HPC の区別をなくし SCP 不要に。app.py にモード切り替えラジオを追加） |
 
 ### セットアップ〜モノマー前処理 動作確認チェックリスト
 
