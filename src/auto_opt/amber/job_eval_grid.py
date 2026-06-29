@@ -52,11 +52,17 @@ def _submit_jobs(auto_dir: Path, monomer_name: str, symmetry: str,
         split_dir.mkdir(parents=True, exist_ok=True)
         split_dirs.append(split_dir)
 
-        if (split_dir / 'job.sh').exists():
-            print(f"  eval_split_{i} → スキップ（既に投入済み）")
-            continue
+        csv_path = split_dir / 'step1_init_params.csv'
+        if csv_path.exists():
+            try:
+                _df = pd.read_csv(csv_path)
+                if 'E' in _df.columns and _df['E'].notna().all():
+                    print(f"  eval_split_{i} → スキップ（計算済み）")
+                    continue
+            except Exception:
+                pass
 
-        chunk.to_csv(split_dir / 'step1_init_params.csv', index=False)
+        chunk.to_csv(csv_path, index=False)
 
         qname, qi, num_nodes = wait_for_free_node(prefer_queue=prefer_queue)
         prefer_queue = qname
