@@ -489,6 +489,7 @@ pip install paramiko
 | 🔲 | 中 | `--monomer-dir` を amber/stacking 全スクリプトに通す（`data_dir` 対応の完成） |
 | ✅ | 高 | **VdW グリッド力場1点評価の動作確認**（`job_eval_grid.py` → Tab 1 マップ品質確認） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
+| 🔲 | 中 | **Amber ドライバーの律速改善**（CSV 毎回全読み書き・0.1s ポーリング・`E_mono` 再計算が律速。改善案: ポーリング間隔を 2〜5s に延長 / 完了ファイルの mtime 変化時のみ再読み込み / `E_mono` をループ外でキャッシュ / `pd.concat` を事前確保リストに変更） |
 | 🔲 | 中 | **SSH 連携機能の実装**（ローカル作業ディレクトリ指定・ファイル自動授受・HPC コマンド実行・進捗表示） |
 | 🔲 | 中 | **実行環境の柔軟化**（VdW/Amber 各ステップをローカルor HPC から選択。`~/.auto_opt.yaml` に `execution:` セクション追加） |
 | 🔲 | 低 | HPC 可搬性対応（分子科学研究所 PBS/SLURM スケジューラー対応） |
