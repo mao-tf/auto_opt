@@ -489,7 +489,7 @@ pip install paramiko
 | 🔲 | 中 | `--monomer-dir` を amber/stacking 全スクリプトに通す（`data_dir` 対応の完成） |
 | ✅ | 高 | **VdW グリッド力場1点評価の動作確認**（`job_eval_grid.py` → Tab 1 マップ品質確認） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
-| 🔲 | 高 | **Amber ドライバーの律速改善**（根本原因: Amber 計算本体は **3ms**（Run done - Setup done）だが、ファイルI/O・プロセス起動・CSV 読み書き・0.1s ポーリング待機がオーバーヘッドの大半を占める。このスケールでは qsub/HPC キューは不要。**オーバーヘッド内訳**: 入力ファイル書き込み~5ms + プロセス起動~10ms + ポーリング平均待機~50ms + CSV read×4本~10ms + CSV write~5ms = 合計~80ms/ジョブ → 体感時間 ≈ (15+80)/15 ≈ **6〜7倍**（実測5倍と整合）。**推奨改善**: `multiprocessing.Pool` で全グリッド点を並列実行 → 結果をメモリ上の dict で管理 → 全完了後に一括 CSV 書き出し。副次的改善: `E_mono` をループ外でキャッシュ / `pd.concat` をリスト蓄積→一括変換に変更） |
+| 🔲 | 高 | **Amber ドライバーの律速改善**（詳細は下記セクション参照） |
 | 🔲 | 中 | **SSH 連携機能の実装**（ローカル作業ディレクトリ指定・ファイル自動授受・HPC コマンド実行・進捗表示） |
 | 🔲 | 中 | **実行環境の柔軟化**（VdW/Amber 各ステップをローカルor HPC から選択。`~/.auto_opt.yaml` に `execution:` セクション追加） |
 | 🔲 | 低 | HPC 可搬性対応（分子科学研究所 PBS/SLURM スケジューラー対応） |
@@ -523,3 +523,66 @@ Tab 0 で生成したファイルとコマンドを使って、以下を順に�
 **確認（ローカル）**
 - [ ] `step1_init_params.csv` を scp でダウンロードし Tab 1 (VdW スキャン) で読み込める
 - [ ] a×b ヒートマップが表示され、3D 構造が表示できる
+
+---
+
+## 8. Amber ドライバー律速問題の詳細分析
+
+### なぜ計算時間が理論値の5倍かかるか
+
+Amber 計算本体は約 **20ms/ジョブ**（出力ファイルの TIMING セクションより）だが、
+現在のファイルベース・ポーリング方式により1ジョブあたりのトータルが約 **100ms** になっている。
+
+| ステップ | 時間 | 備考 |
+|---|---|---|
+| 入力ファイル書き込み | ~5ms | |
+| プロセス起動（subprocess） | ~10ms | |
+| **Amber 計算本体** | **~20ms** | ← 有効な時間 |
+| 出力ファイル書き込み | ~5ms | |
+| ポーリング検知待ち | **~50ms** | `sleep(0.1)` で最大 100ms、平均 50ms |
+| CSV read × 4本 | ~10ms | NFS 上では特に遅い |
+| CSV write | ~5ms | |
+| **合計** | **~105ms** | **理論値の約5倍（実測と一致）** |
+
+### なぜ sleep を長くしても解決しないか
+
+計算が 20ms で終わるのに `sleep(2)` にすると平均 **1000ms** 待つことになり、
+逆に遅くなる。計算が速いほど poll 間隔は短くしなければならないが、
+短くしても per-job のファイル I/O オーバーヘッドが消えるわけではない。
+**polling 自体をやめる**のが唯一の根本解決。
+
+### 推奨改善：multiprocessing.Pool への移行
+
+```python
+# 現在：ファイルポーリング（遅い）
+while not done:
+    check_csv_files()   # NFS read × 4本
+    sleep(0.1)          # 平均50ms 無駄待ち
+
+# 改善後：Pool（速い＋進捗も見える）
+completed = 0
+def on_done(result):
+    global completed
+    completed += 1
+    print(f"[{completed}/{total}] 完了: {result}")  # ジョブごとにリアルタイム表示
+
+with Pool(processes=N) as pool:
+    for job in all_jobs:
+        pool.apply_async(run_amber, args=(job,), callback=on_done)
+    pool.close()
+    pool.join()
+
+write_csv(results)  # 最後に1回だけ書き出し
+```
+
+**改善効果：**
+- ポーリング待ち（50ms）→ 0ms（プロセス終了を直接検知）
+- CSV read/write の繰り返し → 最後に1回のみ
+- 期待速度改善：**約3〜4倍**
+
+**進捗確認について：**
+`apply_async` のコールバックでジョブ完了ごとに即座に通知されるため、
+現在より細かく・リアルタイムに進捗が確認できる。CSV の途中状態を見る必要もなくなる。
+
+**実装コスト：** 半日〜1日程度。`driver_screw_phi.py` と `driver_gene_phi.py` の
+`listen()` / メインループを書き直す必要がある。
