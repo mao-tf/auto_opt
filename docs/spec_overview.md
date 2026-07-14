@@ -489,7 +489,7 @@ pip install paramiko
 | 🔲 | 中 | `--monomer-dir` を amber/stacking 全スクリプトに通す（`data_dir` 対応の完成） |
 | ✅ | 高 | **VdW グリッド力場1点評価の動作確認**（`job_eval_grid.py` → Tab 1 マップ品質確認） |
 | 🔲 | 低 | Gaussian DFT ステップの整理 |
-| 🔲 | 高 | **Amber ドライバーの律速改善**（詳細は下記セクション参照） |
+| ✅ | 高 | **Amber ドライバーの律速改善**（`driver_screw_phi.py`/`driver_gene_phi.py` を `driver_stacking.py` 方式に書き換え済み。詳細は下記セクション参照。要HPC実機での最終検証） |
 | 🔲 | 中 | **SSH 連携機能の実装**（ローカル作業ディレクトリ指定・ファイル自動授受・HPC コマンド実行・進捗表示） |
 | 🔲 | 中 | **実行環境の柔軟化**（VdW/Amber 各ステップをローカルor HPC から選択。`~/.auto_opt.yaml` に `execution:` セクション追加） |
 | 🔲 | 低 | HPC 可搬性対応（分子科学研究所 PBS/SLURM スケジューラー対応） |
@@ -577,41 +577,49 @@ Amber を実行している。`listen()` は `get_params_dict` が返す複数�
 短くしても per-job のファイル I/O オーバーヘッドが消えるわけではない。
 **polling 自体をやめる**のが唯一の根本解決。
 
-### 推奨改善：multiprocessing.Pool への移行
+### 実装済みの改善（2026-07-14, `feature/amber-multiprocessing` ブランチ）
+
+当初案は `multiprocessing.Pool` だったが、同じリポジトリ内の `driver_stacking.py`
+（スタッキング Amber 最適化、Step 4）が既に本番実績のある非同期実行パターンを持っていたため、
+そちらを踏襲する形で `driver_screw_phi.py` / `driver_gene_phi.py` を書き換えた。
 
 ```python
-# 現在：ファイルポーリング（遅い）
+# 現在：ファイルポーリング + subprocess.run ブロッキング実行（旧実装）
 while not done:
-    check_csv_files()   # NFS read × 4本
-    sleep(0.1)          # 平均50ms 無駄待ち
+    check_csv_files()          # NFS read × 4本、毎ティック
+    sleep(0.1)
+# exec_gjf は subprocess.run（ブロッキング）→ num_nodes に関わらず実質1ジョブずつ直列実行
 
-# 改善後：Pool（速い＋進捗も見える）
-completed = 0
-def on_done(result):
-    global completed
-    completed += 1
-    print(f"[{completed}/{total}] 完了: {result}")  # ジョブごとにリアルタイム表示
-
-with Pool(processes=N) as pool:
-    for job in all_jobs:
-        pool.apply_async(run_amber, args=(job,), callback=on_done)
-    pool.close()
-    pool.join()
-
-write_csv(results)  # 最後に1回だけ書き出し
+# 改善後：subprocess.Popen 非同期実行 + インメモリ状態管理（driver_stacking.py 方式）
+while len(running) < num_nodes and job_queue:
+    job = job_queue.pop(0)
+    subprocess.Popen([job_script])   # 非同期起動、num_nodes 個まで同時実行
+    running[job.base] = job
+# 完了検知は running dict を回して .done ファイルの存在を確認するだけ（軽量）
+# CSV の読み書きは10秒おき＋終了時のみ
 ```
 
-**改善効果（実測データを踏まえた再見積もり）：**
-- ポーリング待ち・毎ティックの CSV read/write → 実測で1ジョブ ~650〜870ms（HPC）かかっている
-  オーバーヘッドの大部分がなくなる
-- `exec_gjf` のブロッキング実行を `Pool` の並列ワーカーに置き換えることで、
-  今まで機能していなかった `num_nodes` 分の真の並列実行が有効になる
-- 上記2点を合わせた期待速度改善は**旧見積もりの3〜4倍よりも大きい可能性が高い**が、
-  正確な倍率は実装後に実測して確認する（過大な期待値を書かない）
+**コード調査で判明した根本原因：** `exec_gjf`（`make_io_gene_screw_phi.py` / `make_io_gene_phi.py`）は
+`subprocess.run()`（ブロッキング）で Amber を実行しており、`num_nodes` は「同時実行数」を制御する
+つもりの引数だったが実際には機能しておらず、1ジョブずつ完全に直列実行されていた。
+`job_screw_phi.py` / `job_phi.py` を見ると `num_nodes` は SGE ノードの空きコア数
+（`nproc - nproc_reserve`、typ. 38〜50）から算出されており、本来「その数だけ同時実行してよい」
+という意味だったことが確認できる。今回の書き換えでこの意味を正しく実装した
+（`while len(running) < num_nodes` でジョブキューを絞る）。
 
-**進捗確認について：**
-`apply_async` のコールバックでジョブ完了ごとに即座に通知されるため、
-現在より細かく・リアルタイムに進捗が確認できる。CSV の途中状態を見る必要もなくなる。
+**その他の修正：**
+- リスタートファイル名を固定 `min.rst` → ジョブごとに一意な名前に変更（並列実行時の衝突を回避）
+- `frcmod` 生成をループ内の毎ジョブガード節から、ループ開始前の一度きりの呼び出しに変更（並列時の書き込み競合を回避）
+- `E_mono`（モノマー参照エネルギー）の読み込みを毎ティック→ループ開始前の1回のみに変更
+- `job.sh` 生成時のツールパス解決を、ハードコードされた `conda activate amber` から
+  `cluster.get_amber_tool()`（`~/.auto_opt.yaml` の `amber_tools` セクション）経由に統一
+  （`driver_stacking.py` と同じ方式）
 
-**実装コスト：** 半日〜1日程度。`driver_screw_phi.py` と `driver_gene_phi.py` の
-`listen()` / メインループを書き直す必要がある。
+**検証状況：** `--isTest` モードでの疑似エネルギーによるスモークテストをローカルで実施し、
+状態遷移（座標降下法の収束・ジョブのキューイングと解決・`step1.csv`/`extract_minima` までの
+一連の流れ）が正しく動くことを確認済み。ただし実際の Amber バイナリを使った並列実行の動作は
+ローカル環境に Amber が無いため未検証。**HPC 上での小規模な実データ検証が必要**
+（例: `--num-nodes` を複数にして実際に複数プロセスが同時に走ること、実行時間が実測通り
+短縮されることの確認）。
+
+**実装コスト実績：** 半日程度（調査・実装・スモークテストまで）。

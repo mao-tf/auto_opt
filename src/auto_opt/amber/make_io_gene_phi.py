@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 from auto_opt.utils import Rod, R2atom, place_monomer
+from auto_opt.cluster import get_amber_tool
 
 # プロジェクトルート推定（src/auto_opt/.../このファイル という前提）
 ROOT = Path(__file__).resolve().parents[3]
@@ -342,3 +343,61 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type
         subprocess.run([file_job], check=False)
 
     return out_name
+
+
+# ==========================
+#  非ブロッキング実行用（multiprocessing 律速改善）
+# ==========================
+
+def ensure_frcmod(auto_dir: str, monomer_name: str) -> None:
+    """monomer の frcmod を事前に1回だけ生成する（並列ジョブ間の競合を避けるため）。"""
+    amber_dir = os.path.join(auto_dir, 'amber')
+    os.makedirs(amber_dir, exist_ok=True)
+    frcmod = os.path.join(amber_dir, f'{monomer_name}_gaff2.frcmod')
+    if os.path.exists(frcmod):
+        return
+    monomer_mol2 = str(_guess_mol2_path(monomer_name))
+    parmchk2 = get_amber_tool('parmchk2')
+    subprocess.run(
+        [parmchk2, '-s', 'gaff2', '-i', monomer_mol2, '-f', 'mol2', '-o', frcmod],
+        check=False, cwd=amber_dir,
+    )
+
+
+def write_dimer_inputs(auto_dir: str, monomer_name: str, params_dict: dict, structure_type: int,
+                       monomer_dir: str | None = None) -> Tuple[str, str, str]:
+    """1ダイマー分の mol2・tleap 入力だけを書き出す（非ブロッキング版、subprocess は起動しない）。
+
+    リスタートファイル名はジョブごとに一意にする（固定名 `min.rst` は直列実行専用）。
+    """
+    gv_dir = os.path.join(auto_dir, 'gaussview')
+    os.makedirs(gv_dir, exist_ok=True)
+    xyzfile_name = make_xyz(monomer_name, params_dict, structure_type)
+    with open(os.path.join(gv_dir, xyzfile_name), 'w') as f:
+        f.writelines(make_xyzfile(monomer_name, params_dict, structure_type, monomer_dir=monomer_dir))
+
+    file_name = make_gjf_xyz(auto_dir, monomer_name, params_dict, structure_type, monomer_dir=monomer_dir)
+    file_basename = os.path.splitext(file_name)[0]
+    amber_dir = os.path.join(auto_dir, 'amber')
+
+    lines_tleap = [
+        "source leaprc.gaff2\n",
+        f"MOL = loadmol2 {file_basename}.mol2\n",
+        f"loadamberparams {monomer_name}_gaff2.frcmod\n",
+        f"saveamberparm MOL {file_basename}.prmtop {file_basename}.inpcrd\n",
+        "quit\n",
+    ]
+    file_tleap = os.path.join(amber_dir, f'{file_basename}_tleap.in')
+    with open(file_tleap, 'w') as f:
+        f.writelines(lines_tleap)
+
+    out_name = f'{file_basename}.out'
+    tleap  = get_amber_tool('tleap')
+    sander = get_amber_tool('sander')
+    tleap_cmd = f'"{tleap}" -f {file_basename}_tleap.in > {file_basename}_tleap.out'
+    sander_cmd = (
+        f'"{sander}" -O -i FF_calc.in -o {out_name} '
+        f'-p {file_basename}.prmtop -c {file_basename}.inpcrd '
+        f'-r {file_basename}.rst -ref {file_basename}.inpcrd'
+    )
+    return out_name, tleap_cmd, sander_cmd

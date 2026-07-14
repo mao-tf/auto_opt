@@ -1,11 +1,18 @@
 ##tetracene層内計算
 """
 python -m auto_opt.amber.driver_gene --auto-dir runs/PFA_test --monomer-name PFA --num-nodes 2 --isTest
+
+律速改善版: driver_screw_phi.py と同じ設計（driver_stacking.py 踏襲）。
+ファイルポーリング + subprocess.run による直列ブロッキング実行を廃止し、
+メモリ上のジョブ管理 + subprocess.Popen による非同期並列実行に変更した。
+--num-nodes は「同時実行 Amber ジョブ数」を意味する
+（job_phi.py で SGE ノードの空きコア数から算出される値）。
 """
 import pandas as pd
 import time
-from auto_opt.amber.make_io_gene_phi import exec_gjf ##計算した点のxyzfileを出す
-from auto_opt.utils import amber_get_E, filter_df, check_calc_status, get_values_from_df, update_value_in_df
+import subprocess
+from auto_opt.amber.make_io_gene_phi import write_dimer_inputs, ensure_frcmod
+from auto_opt.utils import amber_get_E
 import argparse
 import numpy as np
 import shutil
@@ -23,182 +30,224 @@ all_keys         = ['alpha', 'phi', 'z', 'a', 'b']
 DIMER_KEYS = {
     1: ['alpha', 'phi', 'a'],            # a-dimer: 平行移動 (a, 0, 0) → z 無依存
     2: ['alpha', 'phi', 'b', 'z'],       # b-dimer: 平行移動 (0, b, 2z) → z 依存
-    3: ['alpha', 'phi', 'a', 'b', 'z'], # t-dimer: 平行移動 (a/2, b/2, z) → z 依存
+    3: ['alpha', 'phi', 'a', 'b', 'z'],  # t-dimer: 平行移動 (a/2, b/2, z) → z 依存
 }
+
 
 def _prepare_amber_resources(auto_dir: str):
     amber_dir = Path(auto_dir) / "amber"
     amber_dir.mkdir(parents=True, exist_ok=True)
-    # FF_calc.in
     src = RES / "FF_calc.in"
     if src.exists():
         shutil.copy2(src, amber_dir / "FF_calc.in")
-    
-def main_process(args):
-    auto_dir = str(Path(args.auto_dir).resolve()) 
-    _prepare_amber_resources(auto_dir)
-    os.makedirs(auto_dir, exist_ok=True)
-    os.makedirs(os.path.join(auto_dir,'amber'), exist_ok=True)
-    os.makedirs(os.path.join(auto_dir,'gaussview'), exist_ok=True)
-    amber_path=os.path.join(auto_dir,'amber')
-    auto_csv_path = os.path.join(auto_dir,'step1.csv')
-    if not os.path.exists(auto_csv_path):        
-        df_E = pd.DataFrame(columns=all_keys + ['E', 'E1', 'E2', 'E3', 'status'])
-        df_E.to_csv(auto_csv_path, index=False)
 
-    for n, e_col in [(1, 'E1'), (2, 'E2'), (3, 'E3')]:
-        path = os.path.join(auto_dir, f'step1_{n}.csv')
-        if not os.path.exists(path):
-            df = pd.DataFrame(columns=DIMER_KEYS[n] + [e_col, 'status', 'file_name'])
-            df.to_csv(path, index=False)
 
-    os.chdir(os.path.join(args.auto_dir,'amber'))
-    isOver = False
-    while not(isOver):
-        #check
-        isOver = listen(auto_dir,args.monomer_name,args.num_nodes,args.isTest)##argsの中身を取る
-        time.sleep(0.1)
+def _round_key(params_dict, keys):
+    return tuple(np.round(float(params_dict[k]), 2) for k in keys)
 
-    from auto_opt.gaussian.extract_minima import extract_minima
-    extract_minima(symmetry='glide', auto_dir=auto_dir)
 
-def listen(auto_dir, monomer_name, num_nodes, isTest):
-    mono_file = str(AMBER_REF / f'{monomer_name}_gaff2.out')
-    E_mono = amber_get_E(mono_file)[0]
+def _fmt(v):
+    return f"{np.round(float(v), 2)}".replace('.', 'p').replace('-', 'm')
 
-    # 各ダイマーの計算完了チェックと E 更新
-    e_cols = {1: 'E1', 2: 'E2', 3: 'E3'}
-    dfs = {}
-    for n, e_col in e_cols.items():
-        csv_n = os.path.join(auto_dir, f'step1_{n}.csv')
-        df_n = pd.read_csv(csv_n)
-        for idx, row in df_n.loc[df_n['status'] == 'InProgress', DIMER_KEYS[n] + ['file_name']].iterrows():
-            log = os.path.join(auto_dir, 'amber', row['file_name'])
-            if not os.path.exists(log):
-                continue
-            E_list = amber_get_E(log)
-            if len(E_list) == 1:
-                E = np.round(float(E_list[0]) - 2 * E_mono, 4)
-                df_n.loc[idx, [e_col, 'status']] = [E, 'Done']
-                df_n.to_csv(csv_n, index=False)
-        dfs[n] = df_n
 
-    # step1.csv の集計: 3ダイマーが全て Done になったら合計 E を記録
-    auto_csv = os.path.join(auto_dir, 'step1.csv')
-    df_E = pd.read_csv(auto_csv)
-    for idx, row in df_E.loc[df_E['status'] == 'InProgress'].iterrows():
-        sub = {n: filter_df(dfs[n], {k: row[k] for k in DIMER_KEYS[n]}) for n in [1, 2, 3]}
-        sub = {n: sub[n][sub[n]['status'] == 'Done'] for n in [1, 2, 3]}
-        if not all(len(sub[n]) > 0 for n in [1, 2, 3]):
-            continue
-        E1, E2, E3 = sub[1]['E1'].values[0], sub[2]['E2'].values[0], sub[3]['E3'].values[0]
-        E = 2*E1 + 2*E2 + 4*E3
-        df_E.loc[idx, ['E', 'E1', 'E2', 'E3', 'status']] = [
-            round(E, 4), round(E1, 4), round(E2, 4), round(E3, 4), 'Done'
-        ]
-        df_E.to_csv(auto_csv, index=False)
+def _base_name(monomer_name, params_dict):
+    parts = [monomer_name] + [f"{k}{_fmt(params_dict[k])}" for k in all_keys]
+    return '_'.join(parts)
 
-    # 新規計算の投入
-    dict_matrix = get_params_dict(auto_dir, num_nodes)
-    for params_dict in dict_matrix:
-        if check_calc_status(auto_dir, params_dict):
-            continue
 
-        df_E = pd.read_csv(auto_csv)
-        if len(filter_df(df_E, params_dict)) == 0:
-            new_row = pd.Series({**params_dict, 'E': 0., 'E1': 0., 'E2': 0., 'E3': 0., 'status': 'InProgress'})
-            df_E = pd.concat([df_E, new_row.to_frame().T], ignore_index=True)
-            df_E.to_csv(auto_csv, index=False)
-
-        for n, e_col in e_cols.items():
-            p_n = {k: v for k, v in params_dict.items() if k in DIMER_KEYS[n]}
-            csv_n = os.path.join(auto_dir, f'step1_{n}.csv')
-            df_n = pd.read_csv(csv_n)
-            if len(filter_df(df_n, p_n)) == 0:
-                file_name = exec_gjf(auto_dir, monomer_name, p_n, structure_type=n, isTest=isTest)
-                new = pd.Series({**p_n, e_col: 0., 'status': 'InProgress', 'file_name': file_name})
-                df_n = pd.concat([df_n, new.to_frame().T], ignore_index=True)
-                df_n.to_csv(csv_n, index=False)
-
-    init_params_csv = os.path.join(auto_dir, 'step1_init_params.csv')
-    df_init = pd.read_csv(init_params_csv)
-    return len(filter_df(df_init, {'status': 'Done'})) == len(df_init)
-
-def get_params_dict(auto_dir, num_nodes):
+def _opt_search_step(grid_results, fixed_params_dict, init_point):
     """
-    前提:
-        step1_init_params.csvとstep1.csvがauto_dirの下にある
+    座標降下法で次に評価すべき (a, b) を求める。z は init_point 固定のまま。
+    step1.csv は (alpha, phi, z, a, b) を持つが、fixed_params_dict は (alpha, phi) のみなので
+    z を明示的に固定して絞り込む。
     """
-    init_params_csv=os.path.join(auto_dir, 'step1_init_params.csv')
-    df_init_params = pd.read_csv(init_params_csv)
-    df_cur = pd.read_csv(os.path.join(auto_dir, 'step1.csv'))
-    df_inprogress = df_init_params[df_init_params['status'] == 'InProgress']
-
-    if len(df_inprogress) < num_nodes:
-        df_notyet = df_init_params[df_init_params['status'] == 'NotYet']
-        for index in df_notyet.index:
-            df_init_params = update_value_in_df(df_init_params, index, 'status', 'InProgress')
-            df_init_params.to_csv(init_params_csv, index=False)
-            return [df_init_params.loc[index, all_keys].to_dict()]
-
-    dict_matrix = []
-    for index in df_inprogress.index:
-        df_init_params = pd.read_csv(init_params_csv)
-        init_params_dict  = df_init_params.loc[index, all_keys].to_dict()
-        fixed_params_dict = df_init_params.loc[index, fixed_param_keys].to_dict()
-        isDone, opt_params_matrix = get_opt_params_dict(df_cur, init_params_dict, fixed_params_dict)
-        if isDone:
-            df_init_params = update_value_in_df(df_init_params, index, 'status', 'Done')
-            if np.max(df_init_params.index) < index + 1:
-                status = 'Done'
-            else:
-                status = get_values_from_df(df_init_params, index + 1, 'status')
-            df_init_params.to_csv(init_params_csv, index=False)
-
-            if status == 'NotYet':
-                next_params = df_init_params.loc[index + 1, all_keys].to_dict()
-                df_init_params = update_value_in_df(df_init_params, index + 1, 'status', 'InProgress')
-                df_init_params.to_csv(init_params_csv, index=False)
-                dict_matrix.append(next_params)
-            else:
-                continue
-        else:
-            for opt in opt_params_matrix:
-                dict_matrix.append({**fixed_params_dict,
-                                    'z': init_params_dict['z'],
-                                    'a': np.round(opt[0], 1),
-                                    'b': np.round(opt[1], 1)})
-    return dict_matrix
-        
-def get_opt_params_dict(df_cur, init_params_dict, fixed_params_dict):
-    # step1.csv は (alpha, phi, z, a, b) を持つ。fixed_params_dict は (alpha, phi) のみなので z を明示的に絞る
-    df_val = filter_df(df_cur, {**fixed_params_dict, 'z': init_params_dict['z']})
-    a_prev = init_params_dict['a']
-    b_prev = init_params_dict['b']
+    z = init_point['z']
+    a_prev, b_prev = init_point['a'], init_point['b']
     while True:
         E_list = []; ab_list = []; para_list = []
         for a in [a_prev - 0.1, a_prev, a_prev + 0.1]:
             for b in [b_prev - 0.1, b_prev, b_prev + 0.1]:
-                a = np.round(a, 1); b = np.round(b, 1)
-                df_v = df_val[(df_val['a'] == a) & (df_val['b'] == b) & (df_val['status'] == 'Done')]
-                if len(df_v) == 0:
-                    para_list.append([a, b])
+                a, b = np.round(a, 1), np.round(b, 1)
+                point = {**fixed_params_dict, 'z': z, 'a': a, 'b': b}
+                key = _round_key(point, all_keys)
+                if key in grid_results:
+                    ab_list.append(point)
+                    E_list.append(grid_results[key]['E'])
                 else:
-                    ab_list.append([a, b]); E_list.append(df_v['E'].values[0])
+                    para_list.append(point)
         if para_list:
-            return False, para_list
-        a_best, b_best = ab_list[np.argmin(E_list)]
-        if a_best == a_prev and b_best == b_prev:
-            return True, [[a_best, b_best]]
-        a_prev, b_prev = a_best, b_best
+            return para_list, None
+        best = ab_list[int(np.argmin(E_list))]
+        if best['a'] == a_prev and best['b'] == b_prev:
+            return None, best
+        a_prev, b_prev = best['a'], best['b']
+
+
+def main_process(args):
+    auto_dir = str(Path(args.auto_dir).resolve())
+    _prepare_amber_resources(auto_dir)
+    amber_dir = os.path.join(auto_dir, 'amber')
+    os.makedirs(amber_dir, exist_ok=True)
+    os.makedirs(os.path.join(auto_dir, 'gaussview'), exist_ok=True)
+    if not args.isTest:
+        ensure_frcmod(auto_dir, args.monomer_name)
+
+    init_csv = os.path.join(auto_dir, 'step1_init_params.csv')
+    df_init = pd.read_csv(init_csv)
+    # num_nodes は「同時実行 Amber ジョブ数」の意味に変わったため、探索ブランチは
+    # 最初から全て有効化する（実際の実行速度は job_queue の draining 側で絞られる）
+    df_init['status'] = 'InProgress'
+    df_init.to_csv(init_csv, index=False)
+
+    mono_file = str(AMBER_REF / f'{args.monomer_name}_gaff2.out')
+    E_mono = amber_get_E(mono_file)[0]
+
+    dimer_energy  = {n: {} for n in range(1, 4)}   # key(tuple) -> E (2*E_mono 差し引き済み)
+    dimer_pending = {n: {} for n in range(1, 4)}   # key(tuple) -> 計算中ジョブの base 名
+    pending_points = {}   # key(tuple) -> point(dict)  … 依頼済みでまだ未解決
+    grid_results   = {}   # key(tuple) -> row(dict)    … 解決済み(Done)
+    job_queue = []
+    running   = {}
+    step1_csv = os.path.join(auto_dir, 'step1.csv')
+    last_save = time.time()
+
+    def try_resolve(key):
+        point = pending_points.get(key)
+        if point is None:
+            return
+        keys_n = {n: _round_key(point, DIMER_KEYS[n]) for n in range(1, 4)}
+        if not all(keys_n[n] in dimer_energy[n] for n in range(1, 4)):
+            return
+        E1, E2, E3 = (dimer_energy[n][keys_n[n]] for n in range(1, 4))
+        E = 2 * E1 + 2 * E2 + 4 * E3
+        grid_results[key] = {
+            **point, 'E': round(E, 4), 'E1': round(E1, 4), 'E2': round(E2, 4),
+            'E3': round(E3, 4), 'status': 'Done',
+        }
+        del pending_points[key]
+
+    def request_point(point):
+        key = _round_key(point, all_keys)
+        if key in grid_results or key in pending_points:
+            return
+        pending_points[key] = point
+
+        needed = []
+        for n in range(1, 4):
+            key_n = _round_key(point, DIMER_KEYS[n])
+            if key_n in dimer_energy[n] or key_n in dimer_pending[n]:
+                continue
+            needed.append((n, key_n))
+
+        if not needed:
+            try_resolve(key)
+            return
+
+        base = _base_name(args.monomer_name, point)
+        dimers = []
+        for n, key_n in needed:
+            out_name, tleap_cmd, sander_cmd = write_dimer_inputs(
+                auto_dir, args.monomer_name, point, structure_type=n,
+            )
+            dimers.append((n, key_n, out_name, tleap_cmd, sander_cmd))
+            dimer_pending[n][key_n] = base
+        job_queue.append({'base': base, 'dimers': dimers})
+
+    def launch(job):
+        done_path = os.path.join(amber_dir, f"{job['base']}.done")
+
+        if args.isTest:
+            # 実 Amber を呼ばずに疑似エネルギーで即完了させ、状態遷移ロジックだけを検証できるようにする
+            for _, _, out_name, _, _ in job['dimers']:
+                fake_E = -float(abs(hash(out_name)) % 1000) / 10.0
+                with open(os.path.join(amber_dir, out_name), 'w') as f:
+                    f.write(" RMS \n")
+                    f.write(f"1 {fake_E} 0.0\n")
+            Path(done_path).touch()
+            return
+
+        cmds = []
+        for _, _, _, tleap_cmd, sander_cmd in job['dimers']:
+            cmds.append(tleap_cmd)
+            cmds.append(sander_cmd)
+        cmds.append(f'touch "{done_path}"')
+        job_path = os.path.join(amber_dir, f"job_{job['base']}.sh")
+        with open(job_path, 'w') as f:
+            f.write("#!/bin/bash\n" + f"cd {amber_dir}\n" + "\n".join(cmds) + "\n")
+        os.chmod(job_path, 0o755)
+        subprocess.Popen([job_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    while True:
+        # ── 完了チェック ────────────────────────────────────
+        finished = []
+        for base, job in running.items():
+            if not os.path.exists(os.path.join(amber_dir, f'{base}.done')):
+                continue
+            for n, key_n, out_name, _, _ in job['dimers']:
+                try:
+                    E_list = amber_get_E(os.path.join(amber_dir, out_name))
+                    E = round(float(E_list[0]) - 2 * E_mono, 4) if len(E_list) == 1 else 99999.0
+                except Exception:
+                    E = 99999.0
+                dimer_energy[n][key_n] = E
+                dimer_pending[n].pop(key_n, None)
+            finished.append(base)
+        for b in finished:
+            del running[b]
+        if finished:
+            for key in list(pending_points.keys()):
+                try_resolve(key)
+
+        # ── 座標降下法: 各探索ブランチの次の要求点 ──────────────
+        for idx, row in df_init.iterrows():
+            if row['status'] == 'Done':
+                continue
+            fixed_params_dict = {k: row[k] for k in fixed_param_keys}
+            init_point = {k: row[k] for k in all_keys}
+            para_list, best = _opt_search_step(grid_results, fixed_params_dict, init_point)
+            if para_list is None:
+                df_init.loc[idx, 'status'] = 'Done'
+                continue
+            for point in para_list:
+                request_point(point)
+
+        # ── ジョブ投入（同時実行数は num_nodes で制限） ───────────
+        while len(running) < args.num_nodes and job_queue:
+            job = job_queue.pop(0)
+            launch(job)
+            running[job['base']] = job
+
+        # ── 定期保存 ────────────────────────────────────────
+        now = time.time()
+        if now - last_save > 10.0 and grid_results:
+            pd.DataFrame(list(grid_results.values())).to_csv(step1_csv, index=False)
+            df_init.to_csv(init_csv, index=False)
+            last_save = now
+            n_done = int((df_init['status'] == 'Done').sum())
+            print(f"[{time.strftime('%H:%M:%S')}] "
+                  f"{n_done}/{len(df_init)} 探索完了 "
+                  f"(実行中: {len(running)}, キュー: {len(job_queue)}, 解決済み点: {len(grid_results)})")
+
+        # ── 終了判定 ────────────────────────────────────────
+        if (df_init['status'] == 'Done').all() and not running and not job_queue:
+            if grid_results:
+                pd.DataFrame(list(grid_results.values())).to_csv(step1_csv, index=False)
+            df_init.to_csv(init_csv, index=False)
+            break
+
+        time.sleep(0.2 if args.isTest else 1.0)
+
+    from auto_opt.gaussian.extract_minima import extract_minima
+    extract_minima(symmetry='glide', auto_dir=auto_dir)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    
-    parser.add_argument('--isTest',action='store_true')
-    parser.add_argument('--auto-dir',type=str,help='path to dir which includes amber, gaussview and csv')
-    parser.add_argument('--monomer-name',type=str,help='monomer name')
-    parser.add_argument('--num-nodes',type=int,help='num nodes')
+
+    parser.add_argument('--isTest', action='store_true')
+    parser.add_argument('--auto-dir', type=str, help='path to dir which includes amber, gaussview and csv')
+    parser.add_argument('--monomer-name', type=str, help='monomer name')
+    parser.add_argument('--num-nodes', type=int, help='num nodes')
     args = parser.parse_args()
 
     print("----main process----")
