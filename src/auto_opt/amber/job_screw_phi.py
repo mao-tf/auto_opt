@@ -66,6 +66,10 @@ def init_process(args):
             f'--monomer-name {args.monomer_name} '
             f'--num-nodes {num_nodes}'
         )
+        if args.monomer_dir:
+            cmd += f' --monomer-dir {args.monomer_dir}'
+        if args.amber_ref_dir:
+            cmd += f' --amber-ref-dir {args.amber_ref_dir}'
         if args.isTest:
             cmd += ' --isTest'
 
@@ -89,6 +93,10 @@ if __name__ == '__main__':
     parser.add_argument('--isTest', action='store_true')
     parser.add_argument('--auto-dir', type=str, required=True)
     parser.add_argument('--monomer-name', type=str, default='DNTT')
+    parser.add_argument('--monomer-dir', type=str, default=None,
+                        help='monomer mol2 の探索先（省略時はパッケージ内 data/monomer）')
+    parser.add_argument('--amber-ref-dir', type=str, default=None,
+                        help='amber_ref の探索先（省略時はパッケージ内 data/amber_ref）')
     args = parser.parse_args()
 
     print('----main process----')

@@ -90,7 +90,7 @@ def main_process(args):
     os.makedirs(amber_dir, exist_ok=True)
     os.makedirs(os.path.join(auto_dir, 'gaussview'), exist_ok=True)
     if not args.isTest:
-        ensure_frcmod(auto_dir, args.monomer_name)
+        ensure_frcmod(auto_dir, args.monomer_name, monomer_dir=args.monomer_dir)
 
     init_csv = os.path.join(auto_dir, 'step1_init_params.csv')
     df_init = pd.read_csv(init_csv)
@@ -99,7 +99,8 @@ def main_process(args):
     df_init['status'] = 'InProgress'
     df_init.to_csv(init_csv, index=False)
 
-    mono_file = str(AMBER_REF / f'{args.monomer_name}_gaff2.out')
+    amber_ref_dir = Path(args.amber_ref_dir) if args.amber_ref_dir else AMBER_REF
+    mono_file = str(amber_ref_dir / f'{args.monomer_name}_gaff2.out')
     E_mono = amber_get_E(mono_file)[0]
 
     dimer_energy  = {n: {} for n in range(1, 4)}   # key(tuple) -> E (2*E_mono 差し引き済み)
@@ -148,6 +149,7 @@ def main_process(args):
         for n, key_n in needed:
             out_name, tleap_cmd, sander_cmd = write_dimer_inputs(
                 auto_dir, args.monomer_name, point, structure_type=n,
+                monomer_dir=args.monomer_dir,
             )
             dimers.append((n, key_n, out_name, tleap_cmd, sander_cmd))
             dimer_pending[n][key_n] = base
@@ -248,6 +250,10 @@ if __name__ == '__main__':
     parser.add_argument('--auto-dir', type=str, help='path to dir which includes amber, gaussview and csv')
     parser.add_argument('--monomer-name', type=str, help='monomer name')
     parser.add_argument('--num-nodes', type=int, help='num nodes')
+    parser.add_argument('--monomer-dir', type=str, default=None,
+                        help='monomer mol2 の探索先（省略時はパッケージ内 data/monomer）')
+    parser.add_argument('--amber-ref-dir', type=str, default=None,
+                        help='amber_ref の探索先（省略時はパッケージ内 data/amber_ref）')
     args = parser.parse_args()
 
     print("----main process----")

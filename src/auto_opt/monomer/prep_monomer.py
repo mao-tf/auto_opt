@@ -461,6 +461,8 @@ class Args:
     esp_level: str
     charge: int
     mult: int
+    mono_dir: Path
+    amber_ref_dir: Path
 
 
 def _parse_args() -> Args:
@@ -489,15 +491,23 @@ def _parse_args() -> Args:
                     help='ESP 計算の計算レベル')
     ap.add_argument('--charge',   type=int, default=0)
     ap.add_argument('--mult',     type=int, default=1)
+    ap.add_argument('--mono-dir', default=None,
+                    help='モノマー出力先（省略時はパッケージ内 data/monomer）')
+    ap.add_argument('--amber-ref-dir', default=None,
+                    help='amber_ref 出力先（省略時はパッケージ内 data/amber_ref）')
     a = ap.parse_args()
 
     default_queue, default_nproc = _gauss_queue_nproc()
     xyz = Path(os.path.expanduser(a.xyz)).resolve()
     mon = a.monomer
+    mono_dir = (Path(os.path.expanduser(a.mono_dir)).resolve() if a.mono_dir
+                else MONO_DIR)
+    amber_ref_dir = (Path(os.path.expanduser(a.amber_ref_dir)).resolve() if a.amber_ref_dir
+                     else AMBER_REF_DIR)
     out_mol2 = (Path(os.path.expanduser(a.out_mol2)).resolve() if a.out_mol2
-                else MONO_DIR / f'{mon}.mol2')
+                else mono_dir / f'{mon}.mol2')
     out_csv  = (Path(os.path.expanduser(a.out_csv)).resolve() if a.out_csv
-                else MONO_DIR / f'{mon}.csv')
+                else mono_dir / f'{mon}.csv')
 
     return Args(
         xyz=xyz, monomer=mon, mode=a.mode,
@@ -509,6 +519,7 @@ def _parse_args() -> Args:
         opt_level=a.opt_level,
         esp_level=a.esp_level,
         charge=a.charge, mult=a.mult,
+        mono_dir=mono_dir, amber_ref_dir=amber_ref_dir,
     )
 
 
@@ -516,8 +527,8 @@ def _parse_args() -> Args:
 
 def main() -> None:
     args = _parse_args()
-    MONO_DIR.mkdir(parents=True, exist_ok=True)
-    AMBER_REF_DIR.mkdir(parents=True, exist_ok=True)
+    args.mono_dir.mkdir(parents=True, exist_ok=True)
+    args.amber_ref_dir.mkdir(parents=True, exist_ok=True)
 
     # ── mode: all (opt → resp → amber_ref を自動で連続実行) ──────────────
     if args.mode == 'all':
@@ -533,12 +544,14 @@ def main() -> None:
             esp_level=args.esp_level,
             charge=args.charge,
             mult=args.mult,
+            mono_dir=args.mono_dir,
+            amber_ref_dir=args.amber_ref_dir,
         )
         return
 
     # ── mode: opt ────────────────────────────────────────────────────────
     if args.mode == 'opt':
-        work = MONO_DIR
+        work = args.mono_dir
         inp  = work / f'{args.monomer}_opt.inp'
         log  = work / f'{args.monomer}_opt.log'
 
@@ -558,7 +571,7 @@ def main() -> None:
                 raise SystemExit(f'ログが見つかりません: {log}')
             atoms = read_opt_xyz_from_log(log)
             atoms = pca_align(atoms)
-            out_xyz = MONO_DIR / f'{args.monomer}.xyz'
+            out_xyz = args.mono_dir / f'{args.monomer}.xyz'
             write_xyz(atoms, out_xyz,
                       comment=f'{args.monomer} optimized ({args.opt_level}), PCA aligned')
             write_csv_from_xyz(out_xyz, args.out_csv)
@@ -622,7 +635,7 @@ def main() -> None:
         base2 = f'{args.monomer}_gaff2'
         write_tleap_and_run(args.out_mol2, wd / base2, frcmods=[])
         tmp_out = run_sander_energy(wd, base2)
-        single_out = AMBER_REF_DIR / f'{args.monomer}_gaff2.out'
+        single_out = args.amber_ref_dir / f'{args.monomer}_gaff2.out'
         single_out.write_text(tmp_out.read_text(), encoding='utf-8')
         print(f'[amber_ref] wrote {single_out}')
 

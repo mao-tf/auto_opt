@@ -33,21 +33,22 @@ def _next_section_idx(lines: List[str], start: int) -> int:
         j += 1
     return j
 
-def _guess_mol2_path(monomer_name: str) -> Path:
-    cand1 = MONO / f"{monomer_name}.mol2"
+def _guess_mol2_path(monomer_name: str, monomer_dir: str | None = None) -> Path:
+    mono = Path(monomer_dir) if monomer_dir else MONO
+    cand1 = mono / f"{monomer_name}.mol2"
     if cand1.exists(): return cand1
-    gl = sorted(MONO.glob(f"{monomer_name}*.mol2"))
+    gl = sorted(mono.glob(f"{monomer_name}*.mol2"))
     if gl: return gl[0]
-    raise FileNotFoundError(f"mol2 not found for monomer '{monomer_name}' under {MONO}")
+    raise FileNotFoundError(f"mol2 not found for monomer '{monomer_name}' under {mono}")
 
 @lru_cache(maxsize=16)
-def _load_mol2_params(monomer_name: str) -> Tuple[List[Tuple[str,float]], List[Tuple[int,int,str]]]:
+def _load_mol2_params(monomer_name: str, monomer_dir: str | None = None) -> Tuple[List[Tuple[str,float]], List[Tuple[int,int,str]]]:
     """
     戻り値:
       - types_charges: [(atom_type, charge)] （atom_id昇順, 1-indexベース）
       - bonds: [(a_idx, b_idx, bond_type)]  （mol2の index 参照, 1-index）
     """
-    p = _guess_mol2_path(monomer_name)
+    p = _guess_mol2_path(monomer_name, monomer_dir)
     txt = p.read_text(encoding="utf-8", errors="ignore")
     lines = txt.splitlines()
 
@@ -116,13 +117,13 @@ def _format_substructure(n_mono_atoms: int) -> List[str]:
         "\n",
     ]
 
-def get_xyzR_lines(xyzr_array: np.ndarray, monomer_name: str) -> List[str]:
+def get_xyzR_lines(xyzr_array: np.ndarray, monomer_name: str, monomer_dir: str | None = None) -> List[str]:
     """
     ダイマー用 .mol2 全文の行を返す（MOLECULE/ATOM/BOND/SUBSTRUCTURE）。
     ATOM の atom_type/charge は monomer mol2 から抽出し、2残基分に複製。
     BOND は monomer の BOND を2倍に複製（片方ずつ）。
     """
-    types_charges, bonds = _load_mol2_params(monomer_name)
+    types_charges, bonds = _load_mol2_params(monomer_name, monomer_dir)
     n_mono = len(types_charges)
     n_total = xyzr_array.shape[0]
     assert n_total % 2 == 0, "xyzr_array は 2N 行（ダイマー）である必要があります"
@@ -304,7 +305,7 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     else:
         raise ValueError("structure_type must be 1, 2, or 3")
 
-    mol2_lines = get_xyzR_lines(dimer, monomer_name)
+    mol2_lines = get_xyzR_lines(dimer, monomer_name, monomer_dir=monomer_dir)
 
     out_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(out_dir, exist_ok=True)
@@ -349,14 +350,14 @@ def exec_gjf(auto_dir: str, monomer_name: str, params_dict: dict, structure_type
 #  非ブロッキング実行用（multiprocessing 律速改善）
 # ==========================
 
-def ensure_frcmod(auto_dir: str, monomer_name: str) -> None:
+def ensure_frcmod(auto_dir: str, monomer_name: str, monomer_dir: str | None = None) -> None:
     """monomer の frcmod を事前に1回だけ生成する（並列ジョブ間の競合を避けるため）。"""
     amber_dir = os.path.join(auto_dir, 'amber')
     os.makedirs(amber_dir, exist_ok=True)
     frcmod = os.path.join(amber_dir, f'{monomer_name}_gaff2.frcmod')
     if os.path.exists(frcmod):
         return
-    monomer_mol2 = str(_guess_mol2_path(monomer_name))
+    monomer_mol2 = str(_guess_mol2_path(monomer_name, monomer_dir))
     parmchk2 = get_amber_tool('parmchk2')
     subprocess.run(
         [parmchk2, '-s', 'gaff2', '-i', monomer_mol2, '-f', 'mol2', '-o', frcmod],
