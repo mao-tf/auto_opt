@@ -241,7 +241,7 @@ def main_process(args):
             df_init.to_csv(init_csv, index=False)
             break
 
-        time.sleep(0.2 if args.isTest else 1.0)
+        time.sleep(0.2 if args.isTest else 0.1)
 
     from auto_opt.gaussian.extract_minima import extract_minima
     extract_minima(symmetry='screw', auto_dir=auto_dir)
