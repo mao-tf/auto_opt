@@ -204,18 +204,6 @@ def run_pipeline(
                 '--select', *vdw_select,
             ], dry_run=dry_run)
 
-        # VdW グリッド全点のエネルギー評価（E 列を step1_init_params.csv に追加）
-        print("\n" + "=" * 60)
-        print(f"  Step 1b: VdW グリッドエネルギー評価")
-        print("=" * 60)
-        _run([
-            'auto_opt.amber.job_eval_grid',
-            '--auto-dir', auto_dir,
-            '--monomer-name', monomer,
-            '--symmetry', symmetry,
-            '--monomer-dir', str(mono_dir),
-        ], dry_run=dry_run)
-
     # ── Step 3: Amber 最適化 ─────────────────────────────────────────
     if 'amber' in steps_to_run:
         print("\n" + "=" * 60)
