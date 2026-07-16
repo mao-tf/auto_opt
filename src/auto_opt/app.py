@@ -883,6 +883,15 @@ with tab_layer:
                         col, options=uniq, value=uniq[0], key=f"layer_fix_{col}"
                     )
 
+        # structure_type フィルタ（a-stack/b-stack等が混在するマップの誤読を防ぐ）
+        if "structure_type" in df.columns:
+            all_types = sorted(df["structure_type"].dropna().unique())
+            if len(all_types) > 1:
+                sel_layer_type = st.radio(
+                    "structure_type", all_types, horizontal=True, key="layer_types"
+                )
+                df = df[df["structure_type"] == sel_layer_type]
+
         # session_state
         for k, v in [
             ("layer_sel", {}),
