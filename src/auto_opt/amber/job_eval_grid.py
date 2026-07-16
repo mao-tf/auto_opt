@@ -22,7 +22,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from auto_opt.cluster import load_env, get_free_queue_instances, wait_for_free_node, make_job_script
+from auto_opt.cluster import (
+    load_env, get_free_queue_instances, wait_for_free_node, make_job_script,
+    invalidate_stale_splits,
+)
 
 
 def _n_splits(df: pd.DataFrame, is_test: bool) -> int:
@@ -40,6 +43,7 @@ def _n_splits(df: pd.DataFrame, is_test: bool) -> int:
 def _submit_jobs(auto_dir: Path, monomer_name: str, symmetry: str,
                  is_test: bool, monomer_dir: str | None = None) -> list[Path]:
     df_init = pd.read_csv(auto_dir / 'step1_init_params.csv')
+    invalidate_stale_splits(auto_dir, df_init, '.eval_input_fingerprint', 'eval_split_*')
     n = _n_splits(df_init, is_test)
     chunks = [c for c in np.array_split(df_init, n) if not c.empty]
     print(f"  {len(df_init)} 点を {len(chunks)} ノードに分割して投入します")

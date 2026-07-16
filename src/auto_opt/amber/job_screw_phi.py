@@ -16,7 +16,8 @@ import argparse
 from pathlib import Path
 
 from auto_opt.cluster import (
-    load_env, get_free_queue_instances, wait_for_free_node, make_job_script
+    load_env, get_free_queue_instances, wait_for_free_node, make_job_script,
+    invalidate_stale_splits,
 )
 
 
@@ -37,6 +38,7 @@ def _n_splits(df: pd.DataFrame, is_test: bool) -> int:
 def init_process(args):
     auto_dir_root = Path(args.auto_dir).resolve()
     df_init = pd.read_csv(auto_dir_root / 'step1_init_params.csv')
+    invalidate_stale_splits(auto_dir_root, df_init, '.amber_input_fingerprint', 'split_*')
 
     n = _n_splits(df_init, args.isTest)
     df_chunks = [c for c in np.array_split(df_init, n) if not c.empty]

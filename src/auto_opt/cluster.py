@@ -211,3 +211,44 @@ def make_job_script(
         lines.append(f'#$ -e {stderr}\n')
     lines += ['\n', 'hostname\n', '\n', cmd + '\n', '\n']
     return ''.join(lines)
+
+
+# ── 分割ジョブの入力フィンガープリント ─────────────────────────────────
+
+def invalidate_stale_splits(
+    auto_dir: Path,
+    df_init: "object",
+    fingerprint_name: str,
+    split_glob: str,
+) -> None:
+    """同じ auto_dir を異なるパラメータで再実行した際に、
+    古い split_*/eval_split_* ディレクトリを誤って再利用しないようにする。
+
+    df_init の内容（status/E など処理中に変わる列を除く）からハッシュを計算し、
+    前回実行時の値と比較する。異なれば（＝run_config.yaml のパラメータが変わった
+    等）、対象の分割ディレクトリを削除してから新しいハッシュを保存する。
+    同じであれば何もしない（＝既存の分割ジョブの再利用・resumeは維持される）。
+    """
+    import hashlib
+    import shutil
+
+    key_cols = [c for c in df_init.columns if c not in ('status', 'E')]
+    payload = df_init[key_cols].round(6).to_csv(index=False).encode('utf-8')
+    new_hash = hashlib.sha256(payload).hexdigest()
+
+    fp_path = Path(auto_dir) / fingerprint_name
+    if fp_path.exists() and fp_path.read_text().strip() == new_hash:
+        return
+
+    if fp_path.exists():
+        removed = 0
+        for old_dir in Path(auto_dir).glob(split_glob):
+            shutil.rmtree(old_dir, ignore_errors=True)
+            removed += 1
+        if removed:
+            print(
+                f"  [警告] 入力パラメータが前回実行と異なるため、"
+                f"古い分割ディレクトリを{removed}個削除しました（{split_glob}）"
+            )
+
+    fp_path.write_text(new_hash)

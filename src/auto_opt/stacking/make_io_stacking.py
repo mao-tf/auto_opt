@@ -25,9 +25,11 @@ N_PAIRS = 14
 
 def _place(monomer_name: str,
            Ta: float, Tb: float, Tc: float,
-           phi: float, alpha: float) -> np.ndarray:
+           phi: float, alpha: float,
+           monomer_dir: str | None = None) -> np.ndarray:
     """回転順: phi(-ex) → alpha(ez) → 平行移動。戻り値: (N, 4) [x, y, z, R]"""
-    df = pd.read_csv(MONO / f'{monomer_name}.csv')
+    mono = Path(monomer_dir) if monomer_dir else MONO
+    df = pd.read_csv(mono / f'{monomer_name}.csv')
     xyz = df[['X', 'Y', 'Z']].values.astype(float)
     R   = df['R'].values.reshape(-1, 1).astype(float)
     ex  = np.array([1., 0., 0.])
@@ -38,7 +40,8 @@ def _place(monomer_name: str,
     return np.concatenate([xyz, R], axis=1)
 
 
-def get_pairs_xyzR(monomer_name: str, params: dict) -> List[np.ndarray]:
+def get_pairs_xyzR(monomer_name: str, params: dict,
+                   monomer_dir: str | None = None) -> List[np.ndarray]:
     """14 ダイマーペアの座標配列を返す。"""
     a      = float(params.get('a',      0.0))
     b      = float(params.get('b',      0.0))
@@ -51,7 +54,7 @@ def get_pairs_xyzR(monomer_name: str, params: dict) -> List[np.ndarray]:
     cz     = float(params.get('cz',     0.0))
 
     def p(Ta, Tb, Tc, al):
-        return _place(monomer_name, Ta, Tb, Tc, phi, al)
+        return _place(monomer_name, Ta, Tb, Tc, phi, al, monomer_dir=monomer_dir)
 
     c   = p(cx,    cy,     cz,      alpha2)
     c_  = p(cx,    cy,     cz,     -alpha2)
@@ -82,9 +85,10 @@ def calc_E_total(E_list: List[float]) -> float:
     return float((sum(E_list[0:5]) + sum(E_list[9:14])) / 2.0 + sum(E_list[5:9]))
 
 
-def get_mol2_lines(xyzr: np.ndarray, monomer_name: str) -> List[str]:
+def get_mol2_lines(xyzr: np.ndarray, monomer_name: str,
+                   monomer_dir: str | None = None) -> List[str]:
     """ダイマー mol2 テキストを返す。"""
-    types_charges, bonds = _load_mol2_params(monomer_name)
+    types_charges, bonds = _load_mol2_params(monomer_name, monomer_dir)
     n_mono  = len(types_charges)
     n_total = xyzr.shape[0]
     n_bonds = 2 * len(bonds)

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from auto_opt.cluster import (
-    load_env, wait_for_free_node, make_job_script,
+    load_env, wait_for_free_node, make_job_script, invalidate_stale_splits,
 )
 
 
@@ -37,6 +37,8 @@ def init_process(args):
     if df_init.empty:
         print("CSV が空です。終了します。")
         return
+
+    invalidate_stale_splits(auto_dir_root, df_init, '.stacking_input_fingerprint', 'split_*')
 
     cfg        = load_env()
     n_cap      = cfg.get('max_concurrent_jobs', 6)
@@ -70,6 +72,8 @@ def init_process(args):
             f'--symmetry {args.symmetry} '
             f'--num-nodes {num_nodes}'
         )
+        if args.monomer_dir:
+            cmd += f' --monomer-dir {args.monomer_dir}'
         if args.isTest:
             cmd += ' --isTest'
 
@@ -100,6 +104,8 @@ if __name__ == '__main__':
     ap.add_argument('--symmetry',     choices=['glide', 'screw'], required=True)
     ap.add_argument('--num-splits',   type=int, default=None,
                     help='分割数（省略時は空きノード数に合わせる）')
+    ap.add_argument('--monomer-dir',  default=None,
+                    help='モノマー CSV/mol2 の探索先（省略時はパッケージ付属の data/monomer）')
     args = ap.parse_args()
 
     print('---- job_stacking start ----')

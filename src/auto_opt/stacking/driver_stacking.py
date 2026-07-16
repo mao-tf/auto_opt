@@ -72,7 +72,7 @@ def _base_name(monomer: str, params: dict, symmetry: str) -> str:
 # ──────────────────────────────────────────────────────────────
 
 def _exec_job(out_dir: Path, monomer: str, params: dict,
-              symmetry: str, is_test: bool) -> str:
+              symmetry: str, is_test: bool, monomer_dir: str | None = None) -> str:
     """mol2・tleap 入力を書き出してバックグラウンドシェルジョブを起動。"""
     if symmetry == 'screw':
         from auto_opt.stacking.make_io_stacking_screw import get_pairs_xyzR, get_mol2_lines
@@ -80,8 +80,8 @@ def _exec_job(out_dir: Path, monomer: str, params: dict,
         from auto_opt.stacking.make_io_stacking import get_pairs_xyzR, get_mol2_lines
 
     base         = _base_name(monomer, params, symmetry)
-    pairs        = get_pairs_xyzR(monomer, params)
-    monomer_mol2 = str(_guess_mol2_path(monomer))
+    pairs        = get_pairs_xyzR(monomer, params, monomer_dir=monomer_dir)
+    monomer_mol2 = str(_guess_mol2_path(monomer, monomer_dir))
     frcmod       = f"{monomer}_gaff2.frcmod"
 
     parmchk2 = get_amber_tool('parmchk2')
@@ -95,7 +95,7 @@ def _exec_job(out_dir: Path, monomer: str, params: dict,
 
     for i, dimer in enumerate(pairs):
         fn       = f"{base}_p{i}"
-        mol2_txt = "".join(get_mol2_lines(dimer, monomer))
+        mol2_txt = "".join(get_mol2_lines(dimer, monomer, monomer_dir=monomer_dir))
         (out_dir / f"{fn}.mol2").write_text(mol2_txt)
 
         tleap_txt = (
@@ -235,7 +235,8 @@ def main_process(args):
         while len(running) < args.num_nodes and job_queue:
             task = job_queue.pop(0)
             base = _exec_job(out_amber, args.monomer_name, task,
-                             args.symmetry, args.isTest)
+                             args.symmetry, args.isTest,
+                             monomer_dir=getattr(args, 'monomer_dir', None))
             running[base] = task
 
         # ── 定期保存 ──────────────────────────────────────────
@@ -266,6 +267,8 @@ if __name__ == '__main__':
     ap.add_argument('--monomer-name', required=True)
     ap.add_argument('--symmetry',     choices=['glide', 'screw'], required=True)
     ap.add_argument('--num-nodes',    type=int, required=True)
+    ap.add_argument('--monomer-dir',  default=None,
+                    help='モノマー CSV/mol2 の探索先（省略時はパッケージ付属の data/monomer）')
     args = ap.parse_args()
 
     print('---- driver_stacking start ----')
