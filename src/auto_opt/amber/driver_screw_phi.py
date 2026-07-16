@@ -149,18 +149,24 @@ def main_process(args):
             return
 
         base = _base_name(args.monomer_name, point)
-        dimers = []
         for n, key_n in needed:
-            out_name, tleap_cmd, sander_cmd = write_dimer_inputs(
-                auto_dir, args.monomer_name, point, structure_type=n,
-                monomer_dir=args.monomer_dir,
-            )
-            dimers.append((n, key_n, out_name, tleap_cmd, sander_cmd))
             dimer_pending[n][key_n] = base
-        job_queue.append({'base': base, 'dimers': dimers})
+        # ダイマー入力ファイル(mol2/tleap.in)の実書き出しは launch() まで遅延させる。
+        # ここで書き出すと起動前に全探索点ぶんのI/Oが一気に走り、num_nodesの並列度が
+        # 効き始めるまでに長い無並列区間ができてしまう（driver_stacking.py と同じ設計に統一）。
+        job_queue.append({'base': base, 'point': point, 'needed': needed})
 
     def launch(job):
         done_path = os.path.join(amber_dir, f"{job['base']}.done")
+
+        dimers = []
+        for n, key_n in job['needed']:
+            out_name, tleap_cmd, sander_cmd = write_dimer_inputs(
+                auto_dir, args.monomer_name, job['point'], structure_type=n,
+                monomer_dir=args.monomer_dir,
+            )
+            dimers.append((n, key_n, out_name, tleap_cmd, sander_cmd))
+        job['dimers'] = dimers
 
         if args.isTest:
             # 実 Amber を呼ばずに疑似エネルギーで即完了させ、状態遷移ロジックだけを検証できるようにする

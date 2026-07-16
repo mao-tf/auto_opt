@@ -529,6 +529,15 @@ with tab_setup:
         f" --start-from monomer --stop-after vdw",
         language="bash",
     )
+    st.caption(
+        "2b. （任意）Tab1 で E 値付きのプレビューを見たい場合のみ実行 "
+        "— Amber 最適化では使わないので省略可"
+    )
+    st.code(
+        f"python -m auto_opt.amber.job_eval_grid --auto-dir {_auto_dir_out}"
+        f" --monomer-name {monomer_name} --symmetry {setup_sym}",
+        language="bash",
+    )
     st.caption("3. HPC → ローカル へ結果を取得（最適化後モノマーファイル）")
     st.code(
         f"mkdir -p {_lwd_mono_str}\n"
