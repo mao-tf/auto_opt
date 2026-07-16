@@ -709,10 +709,15 @@ with tab_vdw:
             )
 
             # 基本設定
+            _hpc_workdir_v = st.session_state.get("setup_hpc_workdir", "").strip()
+            _auto_dir_default = (
+                f"{_hpc_workdir_v}/runs/{monomer_name}_{vdw_sym}"
+                if _hpc_workdir_v else f"runs/{monomer_name}_{vdw_sym}"
+            )
             ca, cb = st.columns(2)
             auto_dir_str = ca.text_input(
-                "HPC 上の実行ディレクトリ (auto_dir)",
-                placeholder=f"runs/{monomer_name}_{vdw_sym}",
+                "HPC 上の実行ディレクトリ (auto_dir、絶対パス推奨)",
+                placeholder=_auto_dir_default,
                 key="vdw_auto_dir",
             )
             n_nodes = cb.number_input(
@@ -775,7 +780,8 @@ with tab_vdw:
             )
 
             # run_config.yaml 生成
-            auto_dir_out = auto_dir_str.strip() or f"runs/{monomer_name}_{vdw_sym}"
+            auto_dir_out = auto_dir_str.strip() or _auto_dir_default
+            data_dir_out = f"{_hpc_workdir_v}/data" if _hpc_workdir_v else None
             params_yaml = ""
             for axis in ["z", "alpha", "phi"] + (["beta"] if vdw_sym == "screw" else []):
                 cfg = param_cfg[axis]
@@ -793,12 +799,19 @@ with tab_vdw:
             run_config_yaml = (
                 f"monomer: {monomer_name}\n"
                 f"symmetry: {vdw_sym}\n"
-                f"auto_dir: {auto_dir_out}\n\n"
-                f"parameters:\n{params_yaml}\n"
+                f"auto_dir: {auto_dir_out}\n"
+                + (f"data_dir: {data_dir_out}\n" if data_dir_out else "")
+                + f"\nparameters:\n{params_yaml}\n"
                 f"vdw_select: {vdw_select_yaml}\n"
                 f"amber:\n"
                 f"  num_nodes: {int(n_nodes)}\n"
             )
+            if not data_dir_out:
+                st.caption(
+                    "⚠️ data_dir が設定されていません（Tab 0 で HPC 作業ディレクトリを"
+                    "入力すると自動で入ります）。無いとパッケージ同梱の data/ が使われ、"
+                    "auto_opt_dir 規約に従いません。"
+                )
 
             st.code(run_config_yaml, language="yaml")
             _lwd_vdw = Path(local_work_dir) if local_work_dir.strip() else None
@@ -808,8 +821,9 @@ with tab_vdw:
                 _hpc_host_v = st.session_state.get("setup_hpc_host", "").strip() or "<user@hpc>"
                 st.code(
                     f"scp {_lwd_vdw}/run_config.yaml {_hpc_host_v}:{auto_dir_out}/\n"
-                    f"ssh {_hpc_host_v} 'cd {auto_dir_out} && "
-                    f"nohup python -m auto_opt.run --config run_config.yaml > run.log 2>&1 &'",
+                    f"ssh {_hpc_host_v} "
+                    f"'nohup python -m auto_opt.run --config {auto_dir_out}/run_config.yaml "
+                    f"> {auto_dir_out}/run.log 2>&1 &'",
                     language="bash",
                 )
             else:
