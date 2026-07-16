@@ -657,8 +657,12 @@ with tab_vdw:
                     pt = event_v.selection.points[0]
                     if pt.get("x") is not None:
                         st.session_state.vdw_sel[vdw_x] = float(pt["x"])
+                        # selectbox はキーに紐づく値を index より優先するため、
+                        # 新しい選択を反映させるにはウィジェット自身のキーも消す必要がある
+                        st.session_state.pop(f"vdw_sel_{vdw_x}", None)
                     if pt.get("y") is not None:
                         st.session_state.vdw_sel[vdw_y] = float(pt["y"])
+                        st.session_state.pop(f"vdw_sel_{vdw_y}", None)
                     st.rerun()
 
             with col_3d_v:
@@ -951,6 +955,10 @@ with tab_layer:
                         else:
                             st.session_state.layer_sel[x_col] = cx
                             st.session_state.layer_sel[y_col] = cy
+                            # selectbox はキーに紐づく値を index より優先するため、
+                            # 新しい選択を反映させるにはウィジェット自身のキーも消す必要がある
+                            st.session_state.pop(f"layer_sel_{x_col}", None)
+                            st.session_state.pop(f"layer_sel_{y_col}", None)
                         st.rerun()
 
                 # モード切替ボタン
