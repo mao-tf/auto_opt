@@ -239,12 +239,10 @@ def _render_heatmap(
     fig.update_layout(
         margin=dict(l=20, r=20, t=30, b=20),
         clickmode="event+select",
-        dragmode="select",
     )
     event = st.plotly_chart(
         fig, use_container_width=True,
         on_select="rerun", key=chart_key,
-        selection_mode="points",
     )
     return event
 
