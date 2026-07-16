@@ -72,7 +72,8 @@ def _submit_jobs(auto_dir: Path, monomer_name: str, symmetry: str,
             f"python -m auto_opt.amber.eval_vdw_grid "
             f"--auto-dir {split_dir} "
             f"--monomer-name {monomer_name} "
-            f"--symmetry {symmetry}"
+            f"--symmetry {symmetry} "
+            f"--num-nodes {num_nodes}"
             f"{monomer_dir_opt}"
         )
         job_sh = make_job_script(
