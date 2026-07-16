@@ -152,7 +152,7 @@ def run_pipeline(
     if symmetry not in ('glide', 'screw'):
         raise ValueError(f"symmetry は 'glide' または 'screw' を指定してください。got: {symmetry}")
 
-    mono_dir, _ = _resolve_data_dirs(config)
+    mono_dir, amber_ref_dir = _resolve_data_dirs(config)
     monomer_path = config.get('monomer_path', str(mono_dir / f"{monomer}.xyz"))
 
     start_i = STEPS.index(start_from)
@@ -228,12 +228,16 @@ def run_pipeline(
                 'auto_opt.amber.job_phi',
                 '--auto-dir', auto_dir,
                 '--monomer-name', monomer,
+                '--monomer-dir', str(mono_dir),
+                '--amber-ref-dir', str(amber_ref_dir),
             ], dry_run=dry_run)
         else:
             _run([
                 'auto_opt.amber.job_screw_phi',
                 '--auto-dir', auto_dir,
                 '--monomer-name', monomer,
+                '--monomer-dir', str(mono_dir),
+                '--amber-ref-dir', str(amber_ref_dir),
             ], dry_run=dry_run)
 
         # collect も対象なら全ジョブ完了を待つ
