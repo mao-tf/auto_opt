@@ -109,7 +109,15 @@ def run_eval(auto_dir: str, monomer_name: str, symmetry: str,
             cmds.append(sander_cmd)
         cmds.append(f'touch "{done_path}"')
         job_path = amber_dir / f"job_{job['base']}.sh"
-        job_path.write_text("#!/bin/bash\n" + f"cd {amber_dir}\n" + "\n".join(cmds) + "\n")
+        job_path.write_text(
+            "#!/bin/bash\n"
+            # 1ダイマー(数十原子)の1点評価にOpenMPスレッド並列化の恩恵はなく、
+            # num_nodes分のsanderが同時に全コアを奪い合ってスレッド過多になるのを防ぐ
+            "export OMP_NUM_THREADS=1\n"
+            "export MKL_NUM_THREADS=1\n"
+            "export OPENBLAS_NUM_THREADS=1\n"
+            f"cd {amber_dir}\n" + "\n".join(cmds) + "\n"
+        )
         os.chmod(job_path, 0o755)
         subprocess.Popen([str(job_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

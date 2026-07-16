@@ -120,6 +120,11 @@ def _exec_job(out_dir: Path, monomer: str, params: dict,
     job_path = out_dir / f"job_{base}.sh"
     job_path.write_text(
         "#!/bin/bash\n"
+        # 1ダイマー(数十原子)の1点評価にOpenMPスレッド並列化の恩恵はなく、
+        # num_nodes分のsanderが同時に全コアを奪い合ってスレッド過多になるのを防ぐ
+        "export OMP_NUM_THREADS=1\n"
+        "export MKL_NUM_THREADS=1\n"
+        "export OPENBLAS_NUM_THREADS=1\n"
         f"cd {out_dir}\n"
         + "\n".join(cmds) + "\n"
     )
