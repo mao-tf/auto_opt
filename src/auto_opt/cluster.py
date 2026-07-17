@@ -102,13 +102,27 @@ def _queue_names() -> List[str]:
 
 # ── SGE ジョブ数確認 ────────────────────────────────────────────────────
 
-def get_my_job_count() -> int:
-    """自分のジョブ数（実行中 + 待機中）を返す。"""
+def get_my_job_count(name_prefix: Optional[str] = None) -> int:
+    """自分のジョブ数（実行中 + 待機中）を返す。
+
+    name_prefix を指定すると、ジョブ名にそれを含む行だけを数える。
+    同じユーザーが複数の run_config.yaml（＝複数モノマー）を同時に流している場合、
+    無指定だと他パイプラインのジョブまで数えてしまい、完了済みのパイプラインが
+    いつまでも「完了待ち」から先に進めなくなる（job_phi.py/job_stacking.py の
+    ジョブ名は f"{monomer}_split{i}" / f"{monomer}_stk{i}" なので、monomer 名を渡す）。
+    """
     user = os.environ.get('USER', '')
     try:
         r = subprocess.run(['qstat', '-u', user],
                            capture_output=True, text=True, timeout=15)
-        return sum(1 for ln in r.stdout.splitlines() if re.match(r'^\s*\d+', ln))
+        count = 0
+        for ln in r.stdout.splitlines():
+            if not re.match(r'^\s*\d+', ln):
+                continue
+            if name_prefix and name_prefix not in ln:
+                continue
+            count += 1
+        return count
     except Exception:
         return 0
 

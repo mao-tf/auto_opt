@@ -234,7 +234,7 @@ def run_pipeline(
             poll = load_env().get('poll_interval', 60)
             print(f"\n[auto_opt] 全ジョブ投入完了。終了を待機中... ({poll}秒ごとに確認)")
             while True:
-                n = get_my_job_count()
+                n = get_my_job_count(name_prefix=monomer)
                 if n == 0:
                     print("[auto_opt] 全ジョブ完了。")
                     break
@@ -300,7 +300,7 @@ def run_pipeline(
             poll = load_env().get('poll_interval', 60)
             print(f"\n[auto_opt] スタッキングジョブ投入完了。終了を待機中... ({poll}秒ごとに確認)")
             while True:
-                n = get_my_job_count()
+                n = get_my_job_count(name_prefix=monomer)
                 if n == 0:
                     print("[auto_opt] 全ジョブ完了。")
                     break
