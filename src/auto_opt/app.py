@@ -789,8 +789,8 @@ with tab_vdw:
                 if isinstance(cfg, dict):
                     n_vdw_pts *= max(1, round((cfg["max"] - cfg["min"]) / cfg["step"]) + 1)
             n_dim  = _N_DIMERS[vdw_sym]
-            # 各VdW初期点で9点探索 + 平均5回×4点の更新 = 29点、各点でn_dimダイマー計算
-            _N_AMBER_PER_INIT = 9 + 5 * 4
+            # 各VdW初期点で9点探索 + 平均3回×4点の更新 = 21点、各点でn_dimダイマー計算
+            _N_AMBER_PER_INIT = 9 + 3 * 4
             wall_s = n_vdw_pts * _N_AMBER_PER_INIT * n_dim * _SEC_PER_CALC / max(n_nodes, 1)
             wall_str = f"{wall_s:.0f} 秒" if wall_s < 60 else f"{wall_s / 60:.1f} 分"
             st.info(
