@@ -34,6 +34,11 @@ _MONOMER_DIR = str(Path(__file__).resolve().parents[2] / "data" / "monomer")
 # この値は再校正すること。
 _SEC_PER_CALC = 1.0
 _N_DIMERS = {'glide': 3, 'screw': 4}
+# Tab1の「並列ノード数」はSGEへの分割投入数(splitの個数)であり、実際の並列度は
+# さらにその内側でSGEノードの空きコア数ぶん(gr1.q≈38, gr2.q≈50)Amberジョブが
+# 同時実行される。真の並列スロット数は 分割数 × 1分割あたりコア数 なので、
+# 予想時間の計算では分割数だけで割ると数十〜百倍過大評価になる。
+_CORES_PER_SPLIT = 44   # gr1.q(38)とgr2.q(50)の平均的な目安
 
 st.set_page_config(page_title="auto_opt viewer", layout="wide")
 st.title("auto_opt — 可視化 UI")
@@ -789,14 +794,19 @@ with tab_vdw:
                 if isinstance(cfg, dict):
                     n_vdw_pts *= max(1, round((cfg["max"] - cfg["min"]) / cfg["step"]) + 1)
             n_dim  = _N_DIMERS[vdw_sym]
+            # vdw_select で a-stack/b-stack を両方選ぶと実際のグリッド行数は選択数倍になる
+            # （"all" 選択時は単一構造として扱われるため倍化しない）
+            n_struct = len(vdw_select) if "all" not in vdw_select else 1
             # 各VdW初期点で9点探索 + 平均3回×4点の更新 = 21点、各点でn_dimダイマー計算
             _N_AMBER_PER_INIT = 9 + 3 * 4
-            wall_s = n_vdw_pts * _N_AMBER_PER_INIT * n_dim * _SEC_PER_CALC / max(n_nodes, 1)
+            total_slots = max(n_nodes, 1) * _CORES_PER_SPLIT
+            wall_s = n_vdw_pts * n_struct * _N_AMBER_PER_INIT * n_dim * _SEC_PER_CALC / total_slots
             wall_str = f"{wall_s:.0f} 秒" if wall_s < 60 else f"{wall_s / 60:.1f} 分"
             st.info(
-                f"VdW 初期点数: **{n_vdw_pts}** 点 ｜ "
+                f"VdW 初期点数: **{n_vdw_pts * n_struct}** 点 ｜ "
                 f"Amber 予想時間: **{wall_str}**"
-                f"（初期9点 + 平均5回×4点更新 = {_N_AMBER_PER_INIT}点/初期点 × {n_dim}ダイマー、{n_nodes}ノード並列）"
+                f"（初期9点 + 平均3回×4点更新 = {_N_AMBER_PER_INIT}点/初期点 × {n_dim}ダイマー、"
+                f"{n_nodes}分割 × 約{_CORES_PER_SPLIT}コア/分割 並列）"
             )
 
             # run_config.yaml 生成
