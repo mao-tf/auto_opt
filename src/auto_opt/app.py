@@ -21,7 +21,18 @@ from auto_opt.plot.make_cluster_xyz import make_cluster_xyz, _load_symbols, _xyz
 from auto_opt.utils import place_monomer
 
 _MONOMER_DIR = str(Path(__file__).resolve().parents[2] / "data" / "monomer")
-_SEC_PER_CALC = 0.02   # sander 1計算あたりの実測値 (秒)
+
+# 1ダイマーあたりの実効計算時間（秒、並列実行時のノード1個あたりの実測ベース）。
+# sander自体の内部計算時間は0.02秒程度だが、これは.outファイルに書かれる
+# 「Total time」の値であり、実際のパイプラインの所要時間ではない。
+# 本番実行(num_nodes=38〜50でtleap+sanderをOSプロセスとして都度起動)では、
+# tleapの起動オーバーヘッド・プロセス生成コスト・OpenMPスレッド過多による競合が
+# 支配的で、BTBTの実測平均は約2.85秒/ダイマーだった。
+# OMP_NUM_THREADS=1修正（本番ノード上で実測: 2.566秒→0.666秒、約3.9倍）を
+# 適用した後の推定値として、tleap等の固定オーバーヘッド(~0.28秒)を残しつつ
+# sander側のみ短縮されるとして概算した値。次の本番実行で実測が取れ次第、
+# この値は再校正すること。
+_SEC_PER_CALC = 1.0
 _N_DIMERS = {'glide': 3, 'screw': 4}
 
 st.set_page_config(page_title="auto_opt viewer", layout="wide")
