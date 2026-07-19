@@ -75,6 +75,8 @@ def init_process(args):
             cmd += f' --monomer-dir {args.monomer_dir}'
         if args.amber_ref_dir:
             cmd += f' --amber-ref-dir {args.amber_ref_dir}'
+        if args.asymmetric:
+            cmd += ' --asymmetric'
         if args.isTest:
             cmd += ' --isTest'
 
@@ -102,6 +104,8 @@ if __name__ == '__main__':
                         help='monomer mol2 の探索先（省略時はパッケージ内 data/monomer）')
     parser.add_argument('--amber-ref-dir', type=str, default=None,
                         help='amber_ref の探索先（省略時はパッケージ内 data/amber_ref）')
+    parser.add_argument('--asymmetric', action='store_true',
+                        help='モノマーに反転対称性が無く t1≠t2 の場合に指定（4ダイマー計算になる）')
     args = parser.parse_args()
 
     print('----main process----')

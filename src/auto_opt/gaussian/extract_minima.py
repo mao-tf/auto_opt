@@ -140,7 +140,7 @@ def extract_glide(step1_csv: Path, out_csv: Path,
     if missing:
         raise ValueError(f"step1.csv に必要な列がありません: {missing}")
 
-    energy_cols = [c for c in ['E', 'E1', 'E2', 'E3'] if c in df.columns]
+    energy_cols = [c for c in ['E', 'E1', 'E2', 'E3', 'E4'] if c in df.columns]
 
     df = df[df['status'].astype(str).str.lower() == 'done'].copy()
     if df.empty:

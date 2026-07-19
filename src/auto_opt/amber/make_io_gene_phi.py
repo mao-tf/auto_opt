@@ -249,8 +249,10 @@ def make_xyzfile(monomer_name: str, params_dict: dict, structure_type: int,
         arr = np.concatenate([mon_i, mon_p2], axis=0)
     elif structure_type == 3:
         arr = np.concatenate([mon_i, mon_p1, mon_p2, mon_t1, mon_t2], axis=0)
+    elif structure_type == 4:
+        arr = np.concatenate([mon_i, mon_t2], axis=0)
     else:
-        raise ValueError("structure_type must be 1, 2, or 3")
+        raise ValueError("structure_type must be 1, 2, 3, or 4")
 
     lines = [f"{len(arr)}\n", f"{monomer_name} structure_type={structure_type}\n"]
     for x, y, zc, R in arr:
@@ -295,6 +297,7 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
     mon_p1 = place_monomer(monomer_name, a,   0,   0,   phi,  alpha, monomer_dir=monomer_dir)
     mon_p2 = place_monomer(monomer_name, 0,   b, 2*z,   phi,  alpha, monomer_dir=monomer_dir)
     mon_t1 = place_monomer(monomer_name, a/2, b/2,  z,  phi, -alpha, monomer_dir=monomer_dir)
+    mon_t2 = place_monomer(monomer_name,-a/2, b/2,  z,  phi, -alpha, monomer_dir=monomer_dir)
 
     if structure_type == 1:
         dimer = np.concatenate([mon_i, mon_p1], axis=0)
@@ -302,8 +305,12 @@ def make_gjf_xyz(auto_dir: str, monomer_name: str, params_dict: dict, structure_
         dimer = np.concatenate([mon_i, mon_p2], axis=0)
     elif structure_type == 3:
         dimer = np.concatenate([mon_i, mon_t1], axis=0)
+    elif structure_type == 4:
+        # 非対称モノマー用: t1(a/2,b/2,z) と t2(-a/2,b/2,z) はモノマー自身に
+        # 反転対称性が無い場合はエネルギーが異なるため、別ダイマーとして計算する
+        dimer = np.concatenate([mon_i, mon_t2], axis=0)
     else:
-        raise ValueError("structure_type must be 1, 2, or 3")
+        raise ValueError("structure_type must be 1, 2, 3, or 4")
 
     mol2_lines = get_xyzR_lines(dimer, monomer_name, monomer_dir=monomer_dir)
 

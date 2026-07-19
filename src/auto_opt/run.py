@@ -212,13 +212,16 @@ def run_pipeline(
         print("=" * 60)
 
         if symmetry == 'glide':
-            _run([
+            cmd = [
                 'auto_opt.amber.job_phi',
                 '--auto-dir', auto_dir,
                 '--monomer-name', monomer,
                 '--monomer-dir', str(mono_dir),
                 '--amber-ref-dir', str(amber_ref_dir),
-            ], dry_run=dry_run)
+            ]
+            if config.get('asymmetric'):
+                cmd.append('--asymmetric')
+            _run(cmd, dry_run=dry_run)
         else:
             _run([
                 'auto_opt.amber.job_screw_phi',

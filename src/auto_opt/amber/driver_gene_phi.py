@@ -30,7 +30,10 @@ all_keys         = ['alpha', 'phi', 'z', 'a', 'b']
 DIMER_KEYS = {
     1: ['alpha', 'phi', 'a'],            # a-dimer: 平行移動 (a, 0, 0) → z 無依存
     2: ['alpha', 'phi', 'b', 'z'],       # b-dimer: 平行移動 (0, b, 2z) → z 依存
-    3: ['alpha', 'phi', 'a', 'b', 'z'],  # t-dimer: 平行移動 (a/2, b/2, z) → z 依存
+    3: ['alpha', 'phi', 'a', 'b', 'z'],  # t1-dimer: 平行移動 (a/2, b/2, z) → z 依存
+    # t2-dimer: 平行移動 (-a/2, b/2, z)。モノマーに反転対称性が無い場合は
+    # t1と別エネルギーになるため --asymmetric 指定時のみ使う
+    4: ['alpha', 'phi', 'a', 'b', 'z'],
 }
 
 
@@ -103,8 +106,11 @@ def main_process(args):
     mono_file = str(amber_ref_dir / f'{args.monomer_name}_gaff2.out')
     E_mono = amber_get_E(mono_file)[0]
 
-    dimer_energy  = {n: {} for n in range(1, 4)}   # key(tuple) -> E (2*E_mono 差し引き済み)
-    dimer_pending = {n: {} for n in range(1, 4)}   # key(tuple) -> 計算中ジョブの base 名
+    # 非対称モノマー（t1≠t2）は4ダイマー・対称モノマー（t1=t2想定）は3ダイマーで計算する
+    n_dimer_types = 4 if args.asymmetric else 3
+
+    dimer_energy  = {n: {} for n in range(1, n_dimer_types + 1)}   # key(tuple) -> E (2*E_mono 差し引き済み)
+    dimer_pending = {n: {} for n in range(1, n_dimer_types + 1)}   # key(tuple) -> 計算中ジョブの base 名
     pending_points = {}   # key(tuple) -> point(dict)  … 依頼済みでまだ未解決
     grid_results   = {}   # key(tuple) -> row(dict)    … 解決済み(Done)
     job_queue = []
@@ -116,15 +122,19 @@ def main_process(args):
         point = pending_points.get(key)
         if point is None:
             return
-        keys_n = {n: _round_key(point, DIMER_KEYS[n]) for n in range(1, 4)}
-        if not all(keys_n[n] in dimer_energy[n] for n in range(1, 4)):
+        keys_n = {n: _round_key(point, DIMER_KEYS[n]) for n in range(1, n_dimer_types + 1)}
+        if not all(keys_n[n] in dimer_energy[n] for n in range(1, n_dimer_types + 1)):
             return
-        E1, E2, E3 = (dimer_energy[n][keys_n[n]] for n in range(1, 4))
-        E = 2 * E1 + 2 * E2 + 4 * E3
-        grid_results[key] = {
-            **point, 'E': round(E, 4), 'E1': round(E1, 4), 'E2': round(E2, 4),
-            'E3': round(E3, 4), 'status': 'Done',
-        }
+        rec = {**point, 'status': 'Done'}
+        if n_dimer_types == 4:
+            E1, E2, E3, E4 = (dimer_energy[n][keys_n[n]] for n in range(1, 5))
+            E = 2 * E1 + 2 * E2 + 2 * E3 + 2 * E4
+            rec['E4'] = round(E4, 4)
+        else:
+            E1, E2, E3 = (dimer_energy[n][keys_n[n]] for n in range(1, 4))
+            E = 2 * E1 + 2 * E2 + 4 * E3
+        rec.update({'E': round(E, 4), 'E1': round(E1, 4), 'E2': round(E2, 4), 'E3': round(E3, 4)})
+        grid_results[key] = rec
         del pending_points[key]
 
     def request_point(point):
@@ -134,7 +144,7 @@ def main_process(args):
         pending_points[key] = point
 
         needed = []
-        for n in range(1, 4):
+        for n in range(1, n_dimer_types + 1):
             key_n = _round_key(point, DIMER_KEYS[n])
             if key_n in dimer_energy[n] or key_n in dimer_pending[n]:
                 continue
@@ -268,6 +278,8 @@ if __name__ == '__main__':
                         help='monomer mol2 の探索先（省略時はパッケージ内 data/monomer）')
     parser.add_argument('--amber-ref-dir', type=str, default=None,
                         help='amber_ref の探索先（省略時はパッケージ内 data/amber_ref）')
+    parser.add_argument('--asymmetric', action='store_true',
+                        help='モノマーに反転対称性が無く t1≠t2 の場合に指定（4ダイマー計算になる）')
     args = parser.parse_args()
 
     print("----main process----")

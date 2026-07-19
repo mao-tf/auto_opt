@@ -201,6 +201,7 @@ def _render_heatmap(
             color_continuous_scale="RdBu_r",
             labels={"color": val_label},
             aspect="auto",
+            origin="lower",
         )
     else:
         fig = go.Figure()
@@ -342,6 +343,15 @@ with tab_setup:
     setup_sym    = c1.selectbox("対称性", ["glide", "screw"], key="setup_sym")
     setup_charge = c2.number_input("電荷", value=0, step=1, key="setup_charge")
     setup_mult   = c3.number_input("多重度", value=1, min_value=1, step=1, key="setup_mult")
+
+    setup_asymmetric = False
+    if setup_sym == "glide":
+        setup_asymmetric = st.checkbox(
+            "モノマーが非対称（反転対称性なし、t1≠t2）",
+            value=False, key="setup_asymmetric",
+            help="BTBTのように反転対称性がある分子は3ダイマー計算のままでよいが、"
+                 "BTNTのように非対称な分子はt1/t2を別々に計算する4ダイマー計算が必要",
+        )
 
     # ─── Step 2: HPC 設定 ────────────────────────────────
     st.subheader("Step 2: HPC 設定")
@@ -501,7 +511,8 @@ with tab_setup:
         f"monomer_xyz: {_mono_xyz_hpc}\n\n"
         f"charge: {int(setup_charge)}\n"
         f"mult: {int(setup_mult)}\n\n"
-        f"parameters:\n{_params_yaml}\n"
+        + (f"asymmetric: true\n\n" if setup_asymmetric else "")
+        + f"parameters:\n{_params_yaml}\n"
         f"vdw_select: {_vdw_select_yaml}\n"
         f"amber:\n"
         f"  num_nodes: {int(setup_n_nodes)}\n"
@@ -775,6 +786,7 @@ with tab_vdw:
                 param_cfg[axis] = {"min": p_min, "max": p_max, "step": p_step}
 
             # glide のみ: vdw_select
+            p_asymmetric = False
             if vdw_sym == "glide":
                 vdw_select = st.multiselect(
                     "抽出する構造タイプ (vdw_select)",
@@ -785,6 +797,12 @@ with tab_vdw:
                 if not vdw_select:
                     st.warning("少なくとも1つ選択してください。")
                     vdw_select = ["all"]
+                p_asymmetric = st.checkbox(
+                    "モノマーが非対称（反転対称性なし、t1≠t2）",
+                    value=False, key="p_asymmetric",
+                    help="BTNTのように反転対称性が無い分子はt1/t2を別々に計算する"
+                         "4ダイマー計算が必要（BTBTのような対称分子は3ダイマーのままでよい）",
+                )
             else:
                 vdw_select = ["all"]
 
@@ -793,7 +811,7 @@ with tab_vdw:
             for axis, cfg in param_cfg.items():
                 if isinstance(cfg, dict):
                     n_vdw_pts *= max(1, round((cfg["max"] - cfg["min"]) / cfg["step"]) + 1)
-            n_dim  = _N_DIMERS[vdw_sym]
+            n_dim = 4 if p_asymmetric else _N_DIMERS[vdw_sym]
             # vdw_select で a-stack/b-stack を両方選ぶと実際のグリッド行数は選択数倍になる
             # （"all" 選択時は単一構造として扱われるため倍化しない）
             n_struct = len(vdw_select) if "all" not in vdw_select else 1
@@ -831,6 +849,7 @@ with tab_vdw:
                 f"symmetry: {vdw_sym}\n"
                 f"auto_dir: {auto_dir_out}\n"
                 + (f"data_dir: {data_dir_out}\n" if data_dir_out else "")
+                + (f"asymmetric: true\n" if p_asymmetric else "")
                 + f"\nparameters:\n{params_yaml}\n"
                 f"vdw_select: {vdw_select_yaml}\n"
                 f"amber:\n"
